@@ -1,0 +1,71 @@
+import { EErrorCode } from '@/core/shared/enums/errorCode.enum';
+
+// Vietnamese is the default/fallback locale — these are the messages the codebase
+// already used before error codes existed, just centralized. `Record<EErrorCode, ...>`
+// means TypeScript itself enforces every error code has a translation here.
+export const viErrors: Record<EErrorCode, string> = {
+    [EErrorCode.INTERNAL_ERROR]: 'Đã có lỗi xảy ra. Vui lòng thử lại sau.',
+    [EErrorCode.VALIDATION_FAILED]: 'Dữ liệu không hợp lệ.',
+    [EErrorCode.VALIDATION_REQUIRED_FIELD]: 'Thiếu trường bắt buộc.',
+    [EErrorCode.VALIDATION_INVALID_CURSOR]: 'Con trỏ phân trang không hợp lệ.',
+    [EErrorCode.RESOURCE_NOT_FOUND]: 'Không tìm thấy dữ liệu.',
+    [EErrorCode.RESOURCE_NOT_FOUND_WITH_ID]: '{entityName} với ID {id} không tồn tại.',
+    [EErrorCode.RESOURCE_NOT_FOUND_NAMED]: '{entityName} không tồn tại.',
+    [EErrorCode.RESOURCE_DUPLICATE]: 'Dữ liệu đã tồn tại.',
+    [EErrorCode.REQUEST_TIMEOUT]: 'Yêu cầu quá thời gian xử lý.',
+    [EErrorCode.RATE_LIMIT_EXCEEDED]: 'Quá nhiều yêu cầu. Vui lòng thử lại sau {retryAfterSec}s.',
+    [EErrorCode.UPLOAD_ERROR]: 'Lỗi tải file lên.',
+    [EErrorCode.INVALID_JSON]: 'Request body không hợp lệ (JSON parse error).',
+
+    [EErrorCode.AUTH_REQUIRED]: 'Yêu cầu xác thực.',
+    [EErrorCode.AUTH_TOKEN_MISSING]: 'Không tìm thấy token.',
+    [EErrorCode.AUTH_TOKEN_INVALID]: 'Token không hợp lệ hoặc đã hết hạn.',
+    [EErrorCode.AUTH_INVALID_CREDENTIALS]: 'Tên đăng nhập hoặc mật khẩu không chính xác.',
+    [EErrorCode.AUTH_ACCOUNT_NOT_FOUND]: 'Không tìm thấy tài khoản.',
+    [EErrorCode.AUTH_ACCOUNT_DEACTIVATED]: 'Tài khoản đã bị vô hiệu hóa.',
+    [EErrorCode.AUTH_LINKED_ACCOUNT_NOT_FOUND]: 'Tài khoản liên kết không tồn tại.',
+    [EErrorCode.AUTH_OLD_PASSWORD_INCORRECT]: 'Mật khẩu cũ không đúng.',
+    [EErrorCode.AUTH_PASSWORD_TOO_SHORT]: 'Mật khẩu mới phải có ít nhất 6 ký tự.',
+    [EErrorCode.AUTH_EMAIL_MISSING_FOR_RESET]: 'Tài khoản này chưa có email, không thể gửi link đặt lại mật khẩu.',
+    [EErrorCode.AUTH_RESET_TOKEN_INVALID]: 'Token không hợp lệ hoặc đã hết hạn.',
+    [EErrorCode.AUTH_USERNAME_TAKEN]: 'Tên đăng nhập đã được sử dụng.',
+    [EErrorCode.AUTH_EMAIL_TAKEN]: 'Email đã được sử dụng.',
+
+    [EErrorCode.PERMISSION_DENIED]: 'Bạn không có quyền thực hiện thao tác này.',
+    [EErrorCode.PERMISSION_INSUFFICIENT_ROLE]: 'Không đủ quyền. Yêu cầu một trong: {roles}',
+    [EErrorCode.PERMISSION_SCOPE_DENIED]: 'Bạn không có quyền truy cập phạm vi này.',
+    [EErrorCode.PERMISSION_MIN_REQUIRED]: 'Bạn cần ít nhất một quyền: {labels}.',
+    [EErrorCode.PERMISSION_CONTEXT_MISMATCH]: 'Yêu cầu context: {requiredScope}, hiện tại: {currentScope}. Vui lòng switch sang đúng context trước khi thực hiện thao tác này.',
+    [EErrorCode.PERMISSION_SELECT_ORG_REQUIRED]: 'Vui lòng chọn một tổ chức ở thanh "Thao tác với tổ chức" trước khi tạo/chỉnh sửa dữ liệu.',
+    [EErrorCode.PERMISSION_TOKEN_WRONG_CONTEXT]: 'Token không đúng context. Vui lòng switch sang: {expectedScopes} (hiện tại: {currentScope})',
+    [EErrorCode.PERMISSION_ACTION_DENIED]: 'Không có quyền thực hiện [{action}] trên [{resource}]',
+    [EErrorCode.PERMISSION_GRANT_NOT_OWNED]: 'Bạn không thể cấp quyền "{label}" vì chính bạn không có quyền này.',
+    [EErrorCode.PERMISSION_GRANT_SCOPE_EXCEEDED]: 'Phạm vi quyền "{label}" bạn muốn cấp vượt quá phạm vi quyền của chính bạn.',
+    [EErrorCode.PERMISSION_REQUIRED_SPECIFIC]: 'Bạn không có quyền "{label}". Liên hệ quản trị viên.',
+    [EErrorCode.PERMISSION_RECORD_ACCESS_DENIED]: 'Bạn không có quyền thao tác trên {resourceLabel} này.',
+
+    [EErrorCode.DELETION_FORBIDDEN_APPEND_ONLY]: '"{entityName}" là bảng append-only, không được phép xóa.',
+    [EErrorCode.DELETION_RESTRICTED]: 'Không thể xóa "{entityName}" vì còn {count} bản ghi "{childEntity}" đang tham chiếu qua "{foreignKey}".',
+    [EErrorCode.DELETION_RESTRICTED_AUTO]: 'Không thể xóa cứng "{entityName}" vì còn {count} bản ghi "{childEntity}" đang tham chiếu bắt buộc qua "{foreignKey}" (chưa khai báo @CascadeChild).',
+
+    [EErrorCode.DATABASE_ERROR]: 'Lỗi truy vấn cơ sở dữ liệu.',
+    [EErrorCode.DUPLICATE_ENTRY]: 'Dữ liệu đã tồn tại.',
+    [EErrorCode.FK_VIOLATION]: 'Dữ liệu liên kết không hợp lệ hoặc không tồn tại.',
+    [EErrorCode.NOT_NULL_VIOLATION]: 'Trường bắt buộc không được để trống.',
+    [EErrorCode.INVALID_INPUT]: 'Định dạng dữ liệu đầu vào không hợp lệ.',
+    [EErrorCode.SYNTAX_ERROR]: 'Câu truy vấn không hợp lệ.',
+    [EErrorCode.CHECK_VIOLATION]: 'Dữ liệu không thỏa mãn điều kiện ràng buộc.',
+
+    [EErrorCode.MAIL_CONFIG_NOT_FOUND]: 'Không tìm thấy cấu hình email phù hợp. Vui lòng liên hệ quản trị viên.',
+    [EErrorCode.MAIL_CONFIG_INCOMPLETE]: 'Cấu hình email thiếu thông tin SMTP.',
+    [EErrorCode.MAIL_CONFIG_DUPLICATE_DOMAIN]: 'Đã có cấu hình email đang hoạt động cho domain "{domain}"',
+
+    [EErrorCode.TENANT_CODE_INVALID]: 'Mã đơn vị không tồn tại.',
+    [EErrorCode.AGENCY_CODE_INVALID]: 'Mã đại lý không tồn tại.',
+    [EErrorCode.AGENCY_ACCESS_DENIED]: 'Bạn không thuộc đại lý này.',
+    [EErrorCode.TENANT_ACCESS_DENIED]: 'Bạn không có quyền truy cập đơn vị này.',
+    [EErrorCode.TENANT_CROSS_REFERENCE_DENIED]: '{label} không thuộc tổ chức này — không được liên kết chéo tổ chức.',
+    [EErrorCode.UNIT_NAME_REQUIRED]: 'Tên đơn vị tính không được để trống.',
+    [EErrorCode.UNIT_CODE_REQUIRED]: 'Mã đơn vị tính không được để trống.',
+    [EErrorCode.UNIT_CODE_DUPLICATE]: 'Mã đơn vị "{code}" đã tồn tại.',
+};
