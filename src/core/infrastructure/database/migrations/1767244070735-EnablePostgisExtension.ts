@@ -4,6 +4,19 @@ export class EnablePostgisExtension1767244070735 implements MigrationInterface {
   name = 'EnablePostgisExtension1767244070735';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Cùng pattern với InitialPgVector: bỏ qua thay vì throw nếu server Postgres
+    // này không có binary của extension (vd Postgres Windows local chưa cài
+    // postgis qua Stack Builder) — tránh chặn boot cho các project không cần geo.
+    const available: Array<{ exists: boolean }> = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_available_extensions WHERE name = 'postgis'
+      );
+    `);
+    if (!available[0]?.exists) {
+      console.log('⚠️ postgis extension not available on this server, skipping');
+      return;
+    }
+
     // Kiểm tra xem extension 'postgis' đã tồn tại chưa
     const exists: Array<{ exists: boolean }> = await queryRunner.query(`
       SELECT EXISTS (

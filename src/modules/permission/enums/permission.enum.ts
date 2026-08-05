@@ -64,6 +64,31 @@ export enum EPermission {
 
     // ─── Activity log ─────────────────────────────────────────────────────────
     ACTIVITY_LOG_VIEW = 'ACTIVITY_LOG_VIEW',
+
+    // ─── CMS: Page / Route ────────────────────────────────────────────────────
+    PAGE_VIEW = 'PAGE_VIEW',
+    PAGE_CREATE = 'PAGE_CREATE',
+    PAGE_UPDATE = 'PAGE_UPDATE',
+    PAGE_DELETE = 'PAGE_DELETE',
+    PAGE_PUBLISH = 'PAGE_PUBLISH',
+
+    // ─── CMS: Section (gắn vào Page) ──────────────────────────────────────────
+    SECTION_MANAGE = 'SECTION_MANAGE',
+
+    // ─── CMS: dynamic Object Type (Content Type builder) ─────────────────────
+    CONTENT_TYPE_MANAGE = 'CONTENT_TYPE_MANAGE',
+
+    // ─── CMS: Content Entry (dữ liệu thực của 1 Content Type) ────────────────
+    CONTENT_ENTRY_VIEW = 'CONTENT_ENTRY_VIEW',
+    CONTENT_ENTRY_CREATE = 'CONTENT_ENTRY_CREATE',
+    CONTENT_ENTRY_UPDATE = 'CONTENT_ENTRY_UPDATE',
+    CONTENT_ENTRY_DELETE = 'CONTENT_ENTRY_DELETE',
+
+    // ─── CMS: Redirect manager ────────────────────────────────────────────────
+    REDIRECT_MANAGE = 'REDIRECT_MANAGE',
+
+    // ─── CMS: Menu / navigation ───────────────────────────────────────────────
+    MENU_MANAGE = 'MENU_MANAGE',
 }
 
 RegisterEnum(EPermission, 'EPermission');
@@ -119,6 +144,25 @@ export const PERMISSION_META: Record<EPermission, IPermissionMeta> = {
     [EPermission.EMAIL_CONFIG_MANAGE]: { label: 'Manage email config', resourceGroup: 'emailConfig' },
 
     [EPermission.ACTIVITY_LOG_VIEW]: { label: 'View activity log', resourceGroup: 'activityLog' },
+
+    [EPermission.PAGE_VIEW]: { label: 'View pages', resourceGroup: 'page' },
+    [EPermission.PAGE_CREATE]: { label: 'Create page', resourceGroup: 'page' },
+    [EPermission.PAGE_UPDATE]: { label: 'Update page', resourceGroup: 'page', suggestedScopeFields: { byId: 'id' } },
+    [EPermission.PAGE_DELETE]: { label: 'Delete page', resourceGroup: 'page', suggestedScopeFields: { byId: 'id' } },
+    [EPermission.PAGE_PUBLISH]: { label: 'Publish/unpublish page', resourceGroup: 'page', suggestedScopeFields: { byId: 'id' } },
+
+    [EPermission.SECTION_MANAGE]: { label: 'Manage page sections', resourceGroup: 'page' },
+
+    [EPermission.CONTENT_TYPE_MANAGE]: { label: 'Manage content types (Object Type builder)', resourceGroup: 'contentType' },
+
+    [EPermission.CONTENT_ENTRY_VIEW]: { label: 'View content entries', resourceGroup: 'contentEntry' },
+    [EPermission.CONTENT_ENTRY_CREATE]: { label: 'Create content entry', resourceGroup: 'contentEntry' },
+    [EPermission.CONTENT_ENTRY_UPDATE]: { label: 'Update content entry', resourceGroup: 'contentEntry', suggestedScopeFields: { byId: 'id' } },
+    [EPermission.CONTENT_ENTRY_DELETE]: { label: 'Delete content entry', resourceGroup: 'contentEntry', suggestedScopeFields: { byId: 'id' } },
+
+    [EPermission.REDIRECT_MANAGE]: { label: 'Manage URL redirects', resourceGroup: 'redirect' },
+
+    [EPermission.MENU_MANAGE]: { label: 'Manage navigation menus', resourceGroup: 'menu' },
 };
 
 // ─── Permission Groups for the account-permission UI ──────────────────────────
@@ -177,5 +221,31 @@ export const PERMISSION_GROUPS: IPermissionGroup[] = [
         key: 'organization', label: 'Organization & activity log',
         description: 'Manage organization profile/roles and browse the activity log',
         permissions: [EPermission.TENANT_PROFILE_MANAGE, EPermission.ACTIVITY_LOG_VIEW],
+    },
+    {
+        key: 'page', label: 'Pages & Routes', description: 'Manage CMS pages, sections and publishing',
+        permissions: [
+            EPermission.PAGE_VIEW, EPermission.PAGE_CREATE, EPermission.PAGE_UPDATE,
+            EPermission.PAGE_DELETE, EPermission.PAGE_PUBLISH, EPermission.SECTION_MANAGE,
+        ],
+    },
+    {
+        key: 'contentType', label: 'Content Types', description: 'Define custom Object Types and their fields',
+        permissions: [EPermission.CONTENT_TYPE_MANAGE],
+    },
+    {
+        key: 'contentEntry', label: 'Content Entries', description: 'Manage data entries of any content type',
+        permissions: [
+            EPermission.CONTENT_ENTRY_VIEW, EPermission.CONTENT_ENTRY_CREATE,
+            EPermission.CONTENT_ENTRY_UPDATE, EPermission.CONTENT_ENTRY_DELETE,
+        ],
+    },
+    {
+        key: 'redirect', label: 'Redirects', description: 'Manage URL redirects',
+        permissions: [EPermission.REDIRECT_MANAGE],
+    },
+    {
+        key: 'menu', label: 'Menus', description: 'Manage navigation menus',
+        permissions: [EPermission.MENU_MANAGE],
     },
 ];

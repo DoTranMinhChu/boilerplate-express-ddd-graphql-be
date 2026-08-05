@@ -94,6 +94,14 @@ const corsOptions: cors.CorsOptions = {
         'x-apollo-operation-name',
         'apollographql-client-name',
         'apollographql-client-version',
+        // FE (core/api/graphql.ts GraphQL.defaultHeaders) luôn gửi kèm header này để
+        // BE localize thông báo lỗi (core/shared/i18n/i18n.service.ts resolveLocale())
+        // — thiếu nó khiến browser chặn preflight với lỗi CORS dù request thật ra
+        // được server chấp nhận.
+        'x-locale',
+        // x-acting-tenant-id: gửi kèm khi tài khoản AGENCY thao tác "thay mặt" 1 tenant
+        // (xem GraphQL.actingTenantContext) — cùng lý do, thiếu sẽ vỡ preflight.
+        'x-acting-tenant-id',
     ],
     exposedHeaders: ['Set-Cookie', 'X-Document-Export-Warnings'],
     maxAge: 86400, // Cache preflight 24h
