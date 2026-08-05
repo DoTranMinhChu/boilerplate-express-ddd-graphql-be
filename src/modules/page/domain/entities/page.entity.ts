@@ -39,6 +39,17 @@ export class PageEntity extends BaseEntity {
     @Column({ nullable: true })
     contentTypeId?: string;
 
+    // Để trống = dùng HeaderPreset/FooterPreset có isDefault=true (xem
+    // PageResolver.resolvePage()) — cho phép nhiều trang dùng chung 1 header/footer,
+    // trong khi những trang khác chỉ định 1 preset khác hẳn.
+    @Field({ type: String, nullable: true })
+    @Column({ nullable: true })
+    headerPresetId?: string;
+
+    @Field({ type: String, nullable: true })
+    @Column({ nullable: true })
+    footerPresetId?: string;
+
     @Field({ type: EPageStatus })
     @Index()
     @Column({ default: EPageStatus.DRAFT })

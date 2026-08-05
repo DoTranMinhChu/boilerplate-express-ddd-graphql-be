@@ -13,6 +13,10 @@ import { PageService } from '@/modules/page/application/services/page.service';
 import { CreatePageInput, UpdatePageInput, PageResolverResultType } from '@/modules/page/application/dto/page.dto';
 import { SectionService } from '@/modules/section/application/services/section.service';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
+import { HeaderPresetService } from '@/modules/headerPreset/application/services/headerPreset.service';
+import { FooterPresetService } from '@/modules/footerPreset/application/services/footerPreset.service';
+import { HeaderPresetEntity } from '@/modules/headerPreset/domain/entities/headerPreset.entity';
+import { FooterPresetEntity } from '@/modules/footerPreset/domain/entities/footerPreset.entity';
 import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.enum';
 import { normalizePagePath } from '@/core/shared/utils/slug.util';
 import { FindOneOptions } from 'typeorm';
@@ -26,6 +30,8 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     private pageService: PageService;
     private sectionService = new SectionService();
     private contentEntryService = new ContentEntryService();
+    private headerPresetService = new HeaderPresetService();
+    private footerPresetService = new FooterPresetService();
 
     constructor() {
         const service = new PageService();
@@ -56,16 +62,35 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         return this.resolvePage(rawPath, true);
     }
 
+    /** Trang tự chọn preset thắng; để trống thì dùng preset có isDefault=true; preset
+     * đã bị xoá (dangling id) cũng rơi về nhánh mặc định thay vì trả undefined —
+     * tránh mọi trang đột nhiên "mất" header/footer chỉ vì preset nó trỏ tới bị xoá. */
+    private async resolveHeaderFooter(page: PageEntity): Promise<{ header?: HeaderPresetEntity; footer?: FooterPresetEntity }> {
+        const resolveHeader = async () =>
+            (page.headerPresetId ? await this.headerPresetService.findById(page.headerPresetId) : null)
+                ?? this.headerPresetService.findDefault();
+        const resolveFooter = async () =>
+            (page.footerPresetId ? await this.footerPresetService.findById(page.footerPresetId) : null)
+                ?? this.footerPresetService.findDefault();
+        const [header, footer] = await Promise.all([resolveHeader(), resolveFooter()]);
+        return { header: header ?? undefined, footer: footer ?? undefined };
+    }
+
     private async resolvePage(rawPath: string, preview: boolean): Promise<PageResolverResultType | null> {
         const path = normalizePagePath(rawPath);
 
         const exactPage = await this.pageService.findByExactPath(path, preview);
         if (exactPage) {
-            const sections = await this.sectionService.findByPage(exactPage.id);
+            const [sections, { header, footer }] = await Promise.all([
+                this.sectionService.findByPage(exactPage.id),
+                this.resolveHeaderFooter(exactPage),
+            ]);
             return {
                 page: exactPage,
                 sections,
                 seo: { ...exactPage.seo },
+                header,
+                footer,
             };
         }
 
@@ -79,7 +104,10 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
             });
             if (!entry) return null;
 
-            const sections = await this.sectionService.findByPage(page.id);
+            const [sections, { header, footer }] = await Promise.all([
+                this.sectionService.findByPage(page.id),
+                this.resolveHeaderFooter(page),
+            ]);
             const hasEntrySeo = Object.keys(entry.seo || {}).length > 0;
             return {
                 page,
@@ -87,6 +115,8 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 seo: hasEntrySeo ? { ...entry.seo } : { ...page.seo },
                 entry,
                 params: { slug },
+                header,
+                footer,
             };
         }
 
