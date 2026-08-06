@@ -49,6 +49,13 @@ export class CreateRedirectInput {
     @Field({ type: Number, nullable: true }) statusCode?: number;
 }
 
+@InputType('UpdateRedirectInput')
+export class UpdateRedirectInput {
+    @Field({ type: String, nullable: true }) fromPath?: string;
+    @Field({ type: String, nullable: true }) toPath?: string;
+    @Field({ type: Number, nullable: true }) statusCode?: number;
+}
+
 // Trả về bởi query công khai `pageResolver(path)` — mục 25 spec CMS. `entry` chỉ
 // có giá trị khi page.pageType = COLLECTION_DETAIL. `seo` đã merge fallback
 // entry.seo -> page.seo -> {} (FE tự áp template mặc định "{title} | {siteName}").

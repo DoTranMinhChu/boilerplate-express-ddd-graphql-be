@@ -7,7 +7,7 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { RedirectEntity } from '@/modules/page/domain/entities/redirect.entity';
 import { RedirectService } from '@/modules/page/application/services/redirect.service';
-import { CreateRedirectInput } from '@/modules/page/application/dto/page.dto';
+import { CreateRedirectInput, UpdateRedirectInput } from '@/modules/page/application/dto/page.dto';
 
 const RedirectPagination = PaginatedResponse(RedirectEntity);
 const STAFF_ROLES = Object.values(ERole);
@@ -44,6 +44,16 @@ export class RedirectResolver extends BaseGraphQLResolver<RedirectEntity> {
     @GQLPermission({ permission: EPermission.REDIRECT_MANAGE, onForbidden: 'throw' })
     async createRedirect(@Args('data', { type: CreateRedirectInput }) data: CreateRedirectInput) {
         return this.redirectService.create(data as any);
+    }
+
+    @Mutation('updateRedirect', { returnType: RedirectEntity })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.REDIRECT_MANAGE, onForbidden: 'throw' })
+    async updateRedirect(
+        @Args('id') id: string,
+        @Args('data', { type: UpdateRedirectInput }) data: UpdateRedirectInput,
+    ) {
+        return this.redirectService.updateById(id, data as any);
     }
 
     @Mutation('deleteRedirect', { returnType: Boolean })
