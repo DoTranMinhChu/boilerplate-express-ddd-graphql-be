@@ -44,3 +44,14 @@ export class MixedFeedQueryInput {
     @Field({ type: [MixedFeedSourceInput] }) sources!: MixedFeedSourceInput[];
     @Field({ type: Number, nullable: true }) limit?: number;
 }
+
+// Khối BACKLINK_ENTRIES — hướng NGƯỢC với RelatedEntries: tìm entry ở content type
+// KHÁC đang có field RELATION trỏ về entry đang xem (vd trang Chi tiết danh mục hiện
+// danh sách bài viết thuộc danh mục đó).
+@InputType('BacklinkEntriesQueryInput')
+export class BacklinkEntriesQueryInput {
+    @Field({ type: String }) entryId!: string;
+    @Field({ type: String }) sourceContentTypeId!: string;
+    @Field({ type: String }) matchField!: string;
+    @Field({ type: Number, nullable: true }) limit?: number;
+}

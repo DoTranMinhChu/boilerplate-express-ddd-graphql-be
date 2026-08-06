@@ -20,16 +20,16 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         contentTypeId: string,
         fieldKey: string,
         values: unknown[],
-        excludeId: string,
+        excludeId: string | undefined,
         limit: number,
     ): Promise<ContentEntryEntity[]> {
         if (!values.length) return [];
 
         const qb = this.repository.createQueryBuilder('e')
             .where('e."contentTypeId" = :contentTypeId', { contentTypeId })
-            .andWhere('e.status = :status', { status: EPageStatus.PUBLISHED })
-            .andWhere('e.id != :excludeId', { excludeId })
-            .andWhere(new Brackets((outer) => {
+            .andWhere('e.status = :status', { status: EPageStatus.PUBLISHED });
+        if (excludeId) qb.andWhere('e.id != :excludeId', { excludeId });
+        qb.andWhere(new Brackets((outer) => {
                 values.forEach((v, i) => {
                     const scalarParam = `matchScalar${i}`;
                     const arrParam = `matchArr${i}`;

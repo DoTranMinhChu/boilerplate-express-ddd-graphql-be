@@ -124,6 +124,17 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
     }
 
     /**
+     * "Nội dung tham chiếu" (backlink) cho khối BACKLINK_ENTRIES — hướng NGƯỢC với
+     * findRelated(): thay vì "cùng loại, cùng field", đây là "entry nào (ở 1 content
+     * type KHÁC) đang có field RELATION trỏ tới entry đang xem", vd trang Chi tiết
+     * danh mục hiện danh sách bài viết thuộc danh mục đó. Không độn thêm khi thiếu —
+     * khác findRelated, ở đây rỗng là kết quả ĐÚNG (chưa có gì tham chiếu tới).
+     */
+    async findBacklinks(entryId: string, sourceContentTypeId: string, matchField: string, limit = 12): Promise<ContentEntryEntity[]> {
+        return this.contentEntryRepository.findByFieldValueAny(sourceContentTypeId, matchField, [entryId], undefined, limit);
+    }
+
+    /**
      * "Nội dung tổng hợp" cho khối MIXED_FEED — trộn entries từ NHIỀU contentType
      * khác nhau vào 1 feed, sắp theo ngày tạo (field duy nhất chắc chắn có ở mọi
      * Object Type — field tuỳ biến không thể so sánh chéo giữa các loại khác nhau).

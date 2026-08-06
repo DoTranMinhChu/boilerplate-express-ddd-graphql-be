@@ -7,7 +7,7 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/contentEntry.entity';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
-import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryInput, MixedFeedQueryInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
+import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryInput, MixedFeedQueryInput, BacklinkEntriesQueryInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
 import { PageService } from '@/modules/page/application/services/page.service';
 import { RedirectService } from '@/modules/page/application/services/redirect.service';
 import { EPageType, EPageStatus } from '@/modules/page/application/enums/page.enum';
@@ -79,6 +79,14 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     @GQLPublic()
     async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput) {
         return this.contentEntryService.findMixed(input.sources, input.limit || 12);
+    }
+
+    /** Khối "Nội dung tham chiếu" (backlink) — vd trang Chi tiết danh mục hiện các bài
+     * viết thuộc danh mục đó. Công khai, không cần login. */
+    @Query('getBacklinkContentEntries', { returnType: [ContentEntryEntity] })
+    @GQLPublic()
+    async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput) {
+        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12);
     }
 
     @Query('getAllContentEntry', { returnType: ContentEntryPagination })
