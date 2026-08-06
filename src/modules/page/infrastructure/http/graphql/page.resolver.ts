@@ -10,7 +10,7 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { PageEntity } from '@/modules/page/domain/entities/page.entity';
 import { PageService } from '@/modules/page/application/services/page.service';
-import { CreatePageInput, UpdatePageInput, PageResolverResultType } from '@/modules/page/application/dto/page.dto';
+import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType } from '@/modules/page/application/dto/page.dto';
 import { SectionService } from '@/modules/section/application/services/section.service';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
 import { HeaderPresetService } from '@/modules/headerPreset/application/services/headerPreset.service';
@@ -157,6 +157,49 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
             where: { contentTypeId, pageType: EPageType.COLLECTION_DETAIL, status: EPageStatus.PUBLISHED },
         });
         return page?.path ?? null;
+    }
+
+    /**
+     * sitemap.xml (mục 12 spec CMS) — mọi trang tĩnh đang publish (trừ pattern
+     * COLLECTION_DETAIL, không phải URL thật) + mọi ContentEntry đang publish của
+     * các trang COLLECTION_DETAIL đang publish, path thật đã thay ":slug". Bỏ qua
+     * URL nào có robotsIndex=false (admin chủ động ẩn khỏi index).
+     */
+    @Query('getSitemapUrls', { returnType: [SitemapUrlType] })
+    @GQLPublic()
+    async getSitemapUrls(): Promise<SitemapUrlType[]> {
+        const staticPages = await this.pageService.findByCondition({
+            where: { status: EPageStatus.PUBLISHED },
+        });
+
+        const urls: SitemapUrlType[] = [];
+        for (const page of staticPages) {
+            if (page.seo?.robotsIndex === false) continue;
+
+            if (page.pageType !== EPageType.COLLECTION_DETAIL) {
+                urls.push({
+                    path: page.path,
+                    updatedAt: page.updatedAt,
+                    priority: page.seo?.sitemapPriority,
+                    changeFreq: page.seo?.sitemapChangeFreq,
+                });
+                continue;
+            }
+
+            const entries = await this.contentEntryService.findByCondition({
+                where: { contentTypeId: page.contentTypeId, status: EPageStatus.PUBLISHED },
+            });
+            for (const entry of entries) {
+                if (entry.seo?.robotsIndex === false) continue;
+                urls.push({
+                    path: page.path.replace(':slug', entry.slug),
+                    updatedAt: entry.updatedAt,
+                    priority: entry.seo?.sitemapPriority ?? page.seo?.sitemapPriority,
+                    changeFreq: entry.seo?.sitemapChangeFreq ?? page.seo?.sitemapChangeFreq,
+                });
+            }
+        }
+        return urls;
     }
 
     @Mutation('createPage', { returnType: PageEntity })

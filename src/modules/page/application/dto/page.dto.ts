@@ -58,6 +58,16 @@ export class UpdateRedirectInput {
     @Field({ type: Number, nullable: true }) statusCode?: number;
 }
 
+// 1 URL trong sitemap.xml — mục 12 spec CMS (sitemapPriority/sitemapChangeFreq trên
+// Seo). `path` LUÔN là URL thật (đã thay ":slug" bằng slug thật cho COLLECTION_DETAIL).
+@ObjectType('SitemapUrl')
+export class SitemapUrlType {
+    @Field({ type: String }) path!: string;
+    @Field({ type: Date, nullable: true }) updatedAt?: Date;
+    @Field({ type: Number, nullable: true }) priority?: number;
+    @Field({ type: String, nullable: true }) changeFreq?: string;
+}
+
 // Trả về bởi query công khai `pageResolver(path)` — mục 25 spec CMS. `entry` chỉ
 // có giá trị khi page.pageType = COLLECTION_DETAIL. `seo` đã merge fallback
 // entry.seo -> page.seo -> {} (FE tự áp template mặc định "{title} | {siteName}").

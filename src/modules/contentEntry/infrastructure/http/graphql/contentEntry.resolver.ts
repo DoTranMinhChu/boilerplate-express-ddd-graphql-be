@@ -7,7 +7,7 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/contentEntry.entity';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
-import { CreateContentEntryInput, UpdateContentEntryInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
+import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryInput, MixedFeedQueryInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
 import { PageService } from '@/modules/page/application/services/page.service';
 import { RedirectService } from '@/modules/page/application/services/redirect.service';
 import { EPageType, EPageStatus } from '@/modules/page/application/enums/page.enum';
@@ -65,6 +65,20 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
             order: { [sortField || 'createdAt']: sortDirection || 'DESC' } as any,
             take: limit || 12,
         });
+    }
+
+    /** Khối "Nội dung liên quan" trên trang Chi tiết — công khai, không cần login. */
+    @Query('getRelatedContentEntries', { returnType: [ContentEntryEntity] })
+    @GQLPublic()
+    async getRelatedContentEntries(@Args('input', { type: RelatedEntriesQueryInput }) input: RelatedEntriesQueryInput) {
+        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3);
+    }
+
+    /** Khối "Nội dung tổng hợp" — trộn nhiều Object Type vào 1 feed, công khai. */
+    @Query('getMixedContentEntries', { returnType: [ContentEntryEntity] })
+    @GQLPublic()
+    async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput) {
+        return this.contentEntryService.findMixed(input.sources, input.limit || 12);
     }
 
     @Query('getAllContentEntry', { returnType: ContentEntryPagination })

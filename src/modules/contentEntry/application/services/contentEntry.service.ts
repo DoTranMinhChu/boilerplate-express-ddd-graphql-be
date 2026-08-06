@@ -5,8 +5,9 @@ import { BadRequestException, ConflictException, NotFoundException } from '@/cor
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
 import { FieldDefinitionType } from '@/modules/contentType/application/dto/fieldDefinition.dto';
 import { EFieldType } from '@/modules/contentType/application/enums/contentType.enum';
+import { EPageStatus } from '@/modules/page/application/enums/page.enum';
 import { slugify } from '@/core/shared/utils/slug.util';
-import { DeepPartial } from 'typeorm';
+import { DeepPartial, In, Not } from 'typeorm';
 
 export class ContentEntryService extends BaseService<ContentEntryEntity> {
     constructor(
@@ -93,5 +94,50 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
 
         const entry = await this.updateById(id, { ...input, data: mergedData, slug });
         return { entry, oldSlug: current.slug, contentTypeId: current.contentTypeId };
+    }
+
+    /**
+     * "Nội dung liên quan" cho khối RELATED_ENTRIES trên trang Chi tiết — cùng
+     * contentType, khớp `matchField` (vd cùng Loại tin tức) với entry đang xem, entry
+     * hiện tại luôn bị loại. Không đủ số lượng khớp → độn thêm bài mới nhất khác (tránh
+     * khối "liên quan" trống trơn hoặc quá ít khi dữ liệu còn thưa).
+     */
+    async findRelated(entryId: string, matchField: string | undefined, limit = 3): Promise<ContentEntryEntity[]> {
+        const current = await this.contentEntryRepository.findById(entryId);
+        if (!current) return [];
+
+        const rawValue = matchField ? current.data?.[matchField] : undefined;
+        const matchValues = Array.isArray(rawValue) ? rawValue : rawValue !== undefined && rawValue !== null && rawValue !== '' ? [rawValue] : [];
+
+        const matched = matchValues.length
+            ? await this.contentEntryRepository.findByFieldValueAny(current.contentTypeId, matchField!, matchValues, current.id, limit)
+            : [];
+
+        if (matched.length >= limit) return matched;
+
+        const filler = await this.contentEntryRepository.findByCondition({
+            where: { contentTypeId: current.contentTypeId, status: EPageStatus.PUBLISHED, id: Not(In([...matched.map((m) => m.id), current.id])) },
+            order: { createdAt: 'DESC' },
+            take: limit - matched.length,
+        });
+        return [...matched, ...filler];
+    }
+
+    /**
+     * "Nội dung tổng hợp" cho khối MIXED_FEED — trộn entries từ NHIỀU contentType
+     * khác nhau vào 1 feed, sắp theo ngày tạo (field duy nhất chắc chắn có ở mọi
+     * Object Type — field tuỳ biến không thể so sánh chéo giữa các loại khác nhau).
+     */
+    async findMixed(sources: { contentTypeId: string; limit?: number }[], overallLimit = 12): Promise<ContentEntryEntity[]> {
+        const perSource = await Promise.all(
+            sources.map((s) => this.contentEntryRepository.findByCondition({
+                where: { contentTypeId: s.contentTypeId, status: EPageStatus.PUBLISHED },
+                order: { createdAt: 'DESC' },
+                take: s.limit || overallLimit,
+            })),
+        );
+        return perSource.flat()
+            .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+            .slice(0, overallLimit);
     }
 }
