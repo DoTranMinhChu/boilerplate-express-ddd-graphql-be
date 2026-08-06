@@ -29,6 +29,13 @@ export class RedirectResolver extends BaseGraphQLResolver<RedirectEntity> {
         return this.redirectService.findOneByCondition({ where: { fromPath } });
     }
 
+    @Query('getOneRedirect', { returnType: RedirectEntity })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.REDIRECT_MANAGE, onForbidden: 'throw' })
+    async getOneRedirect(@Args('id') id: string) {
+        return this.redirectService.findById(id);
+    }
+
     @Query('getAllRedirect', { returnType: RedirectPagination })
     @GQLAuthorized(STAFF_ROLES)
     @GQLPermission({ permission: EPermission.REDIRECT_MANAGE, onForbidden: 'empty', filterArg: 'input' })

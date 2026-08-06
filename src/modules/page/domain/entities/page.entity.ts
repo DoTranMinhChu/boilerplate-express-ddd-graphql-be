@@ -2,6 +2,7 @@ import { BaseEntity } from '@/core/domain/entities/base.entity';
 import { Entity, Column, Index } from 'typeorm';
 import { ObjectType, Field } from '@/core/shared/decorators/graphQL.decorators';
 import { SeoType } from '@/core/shared/dto/seo.dto';
+import { GraphQLMixed } from '@/core/shared/graphql/scalars';
 import { EPageType, EPageStatus } from '@/modules/page/application/enums/page.enum';
 
 @ObjectType('Page')
@@ -70,4 +71,11 @@ export class PageEntity extends BaseEntity {
     @Field({ type: SeoType, nullable: true })
     @Column({ type: 'jsonb', default: {} })
     seo!: SeoType;
+
+    // Nền/font áp cho toàn trang (khác style riêng của từng Section) — vd trang này
+    // luôn nền tối bất kể khối nào đang trống/chưa phủ hết màn hình.
+    //   { backgroundColor?: string (hex), fontFamily?: string (CSS font-family) }
+    @Field({ type: GraphQLMixed, nullable: true })
+    @Column({ type: 'jsonb', default: {} })
+    style?: Record<string, string>;
 }

@@ -20,6 +20,7 @@ export class CreatePageInput {
     @Field({ type: String, nullable: true }) footerPresetId?: string;
     @Field({ type: String, nullable: true }) locale?: string;
     @Field({ type: SeoInput, nullable: true }) seo?: SeoInput;
+    @Field({ type: GraphQLMixed, nullable: true }) style?: Record<string, string>;
 }
 
 @InputType('UpdatePageInput')
@@ -34,6 +35,7 @@ export class UpdatePageInput {
     @Field({ type: String, nullable: true }) footerPresetId?: string;
     @Field({ type: String, nullable: true }) locale?: string;
     @Field({ type: SeoInput, nullable: true }) seo?: SeoInput;
+    @Field({ type: GraphQLMixed, nullable: true }) style?: Record<string, string>;
 }
 
 @InputType('ScheduleePageInput')
