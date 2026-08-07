@@ -20,6 +20,8 @@ import { FooterPresetEntity } from '@/modules/footerPreset/domain/entities/foote
 import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.enum';
 import { normalizePagePath } from '@/core/shared/utils/slug.util';
 import { FindOneOptions } from 'typeorm';
+import { PageVersionEntity } from '@/modules/page/domain/entities/pageVersion.entity';
+import { PageVersionService } from '@/modules/page/application/services/pageVersion.service';
 
 const PagePagination = PaginatedResponse(PageEntity);
 
@@ -32,6 +34,7 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     private contentEntryService = new ContentEntryService();
     private headerPresetService = new HeaderPresetService();
     private footerPresetService = new FooterPresetService();
+    private pageVersionService = new PageVersionService();
 
     constructor() {
         const service = new PageService();
@@ -246,6 +249,20 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     @GQLPermission({ permission: EPermission.PAGE_PUBLISH, onForbidden: 'throw', checkArg: 'id' })
     async unpublishPage(@Args('id') id: string) {
         return this.pageService.unpublish(id);
+    }
+
+    @Query('getPageVersions', { returnType: [PageVersionEntity] })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.PAGE_VIEW, onForbidden: 'throw' })
+    async getPageVersions(@Args('pageId') pageId: string) {
+        return this.pageVersionService.listByPage(pageId);
+    }
+
+    @Mutation('restorePageVersion', { returnType: PageVersionEntity })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.PAGE_PUBLISH, onForbidden: 'throw' })
+    async restorePageVersion(@Args('versionId') versionId: string) {
+        return this.pageVersionService.restore(versionId);
     }
 }
 
