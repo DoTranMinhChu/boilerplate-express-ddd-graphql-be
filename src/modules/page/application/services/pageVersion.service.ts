@@ -26,7 +26,7 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
         if (!version) throw new NotFoundException('Không tìm thấy phiên bản.');
 
         const snapshotSections = (version.snapshot?.sections || []) as Partial<SectionEntity>[];
-        const currentSections = await this.sectionService.findByPage(version.pageId);
+        const currentSections = await this.sectionService.findByCondition({ where: { pageId: version.pageId } });
         for (const section of currentSections) {
             await this.sectionService.deleteById(section.id);
         }

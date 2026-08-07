@@ -55,7 +55,7 @@ describe('PageVersionService', () => {
             const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => version) };
             const currentSections = [{ id: 'current-1' }, { id: 'current-2' }];
             const fakeSectionService = {
-                findByPage: jest.fn(async () => currentSections),
+                findByCondition: jest.fn(async () => currentSections),
                 deleteById: jest.fn(async () => undefined),
                 create: jest.fn(async (data: any) => ({ id: 'new-1', ...data })),
             };
@@ -63,12 +63,37 @@ describe('PageVersionService', () => {
 
             const result = await service.restore('v1');
 
+            expect(fakeSectionService.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' } });
             expect(fakeSectionService.deleteById).toHaveBeenCalledTimes(2);
             expect(fakeSectionService.deleteById).toHaveBeenCalledWith('current-1');
             expect(fakeSectionService.deleteById).toHaveBeenCalledWith('current-2');
             expect(fakeSectionService.create).toHaveBeenCalledTimes(1);
             expect(fakeSectionService.create).toHaveBeenCalledWith({ type: 'hero', order: 0, content: { heading: 'Cũ' }, pageId: 'page-1' });
             expect(result).toBe(version);
+        });
+
+        it('xoá cả section đang bị ẩn (enabled: false), không chỉ section đang bật', async () => {
+            const version = makeVersion({ id: 'v1', pageId: 'page-1', snapshot: { sections: [] } });
+            const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => version) };
+            const currentSections = [
+                { id: 'current-1', enabled: true },
+                { id: 'ghost-hidden', enabled: false },
+            ];
+            const fakeSectionService = {
+                findByCondition: jest.fn(async () => currentSections),
+                deleteById: jest.fn(async () => undefined),
+                create: jest.fn(async (data: any) => ({ id: 'new-1', ...data })),
+            };
+            const service = new PageVersionService(fakeRepo as any, fakeSectionService as any);
+
+            await service.restore('v1');
+
+            expect(fakeSectionService.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' } });
+            const whereArg = (fakeSectionService.findByCondition as jest.Mock).mock.calls[0][0].where;
+            expect(whereArg).not.toHaveProperty('enabled');
+            expect(fakeSectionService.deleteById).toHaveBeenCalledTimes(2);
+            expect(fakeSectionService.deleteById).toHaveBeenCalledWith('current-1');
+            expect(fakeSectionService.deleteById).toHaveBeenCalledWith('ghost-hidden');
         });
     });
 });
