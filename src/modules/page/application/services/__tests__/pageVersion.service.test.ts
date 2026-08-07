@@ -51,7 +51,15 @@ describe('PageVersionService', () => {
             const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => null) };
             const service = new PageVersionService(fakeRepo as any, {} as any);
 
-            await expect(service.restore('missing')).rejects.toThrow(NotFoundException);
+            await expect(service.restore('page-1', 'missing')).rejects.toThrow(NotFoundException);
+        });
+
+        it('báo NotFoundException khi versionId thuộc về 1 page khác với pageId truyền vào', async () => {
+            const version = makeVersion({ id: 'v1', pageId: 'page-1' });
+            const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => version) };
+            const service = new PageVersionService(fakeRepo as any, {} as any);
+
+            await expect(service.restore('page-999', 'v1')).rejects.toThrow(NotFoundException);
         });
 
         it('xoá toàn bộ section hiện tại của trang rồi tạo lại đúng theo snapshot', async () => {
@@ -73,7 +81,7 @@ describe('PageVersionService', () => {
             };
             const service = new PageVersionService(fakeRepo as any, fakeSectionService as any);
 
-            const result = await service.restore('v1');
+            const result = await service.restore('page-1', 'v1');
 
             expect(fakeSectionService.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' } });
             expect(fakeSectionService.deleteById).toHaveBeenCalledTimes(2);
@@ -98,7 +106,7 @@ describe('PageVersionService', () => {
             };
             const service = new PageVersionService(fakeRepo as any, fakeSectionService as any);
 
-            await service.restore('v1');
+            await service.restore('page-1', 'v1');
 
             expect(fakeSectionService.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' } });
             const whereArg = (fakeSectionService.findByCondition as jest.Mock).mock.calls[0][0].where;

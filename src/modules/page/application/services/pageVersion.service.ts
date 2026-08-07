@@ -37,9 +37,12 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
      * snapshot đã lưu. KHÔNG tự publish lại — trang trở về đúng nội dung cũ ở
      * dạng bản nháp trong Page Builder, admin tự bấm Xuất bản nếu đồng ý, tránh
      * âm thầm ghi đè bản đang live chỉ vì bấm nhầm "Khôi phục". */
-    async restore(versionId: string): Promise<PageVersionEntity> {
+    async restore(pageId: string, versionId: string): Promise<PageVersionEntity> {
         const version = await this.findById(versionId);
         if (!version) throw new NotFoundException('Không tìm thấy phiên bản.');
+        if (version.pageId !== pageId) {
+            throw new NotFoundException('Phiên bản này không thuộc về trang đã chỉ định.');
+        }
 
         const snapshotSections = (version.snapshot?.sections || []) as Partial<SectionEntity>[];
         const currentSections = await this.sectionService.findByCondition({ where: { pageId: version.pageId } });

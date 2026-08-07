@@ -260,9 +260,9 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
 
     @Mutation('restorePageVersion', { returnType: PageVersionEntity })
     @GQLAuthorized(STAFF_ROLES)
-    @GQLPermission({ permission: EPermission.PAGE_PUBLISH, onForbidden: 'throw' })
-    async restorePageVersion(@Args('versionId') versionId: string) {
-        return this.pageVersionService.restore(versionId);
+    @GQLPermission({ permission: EPermission.PAGE_PUBLISH, onForbidden: 'throw', checkArg: 'pageId' })
+    async restorePageVersion(@Args('pageId') pageId: string, @Args('versionId') versionId: string) {
+        return this.pageVersionService.restore(pageId, versionId);
     }
 }
 
