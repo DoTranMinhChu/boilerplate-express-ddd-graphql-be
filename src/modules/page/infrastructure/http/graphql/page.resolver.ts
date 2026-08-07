@@ -237,9 +237,8 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         @Args('label', { type: String }) label: string | undefined,
         @GQLCurrentUser() account: IAccount,
     ) {
-        // Sections snapshot đầy đủ được resolver page-builder ở phase FE gửi kèm sau;
-        // ở backend-core này lưu snapshot rỗng làm placeholder cho version đầu tiên.
-        return this.pageService.publish(id, [], account?.id, label);
+        const sections = await this.sectionService.findByPage(id);
+        return this.pageService.publish(id, sections, account?.id, label);
     }
 
     @Mutation('unpublishPage', { returnType: PageEntity })
