@@ -46,12 +46,19 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
 
         const snapshotSections = (version.snapshot?.sections || []) as Partial<SectionEntity>[];
         const currentSections = await this.sectionService.findByCondition({ where: { pageId: version.pageId } });
-        for (const section of currentSections) {
-            await this.sectionService.deleteById(section.id);
-        }
+
+        // Tạo section mới TRƯỚC, xoá section cũ SAU — nếu vòng lặp tạo bị lỗi giữa
+        // chừng, trang vẫn còn nguyên section cũ (có thể dư vài section mới cần dọn
+        // tay) thay vì mất trắng cả cũ lẫn mới. Không dùng transaction thật ở đây vì
+        // BaseService/ABaseRepository hiện không xuyên EntityManager của 1 transaction
+        // vào các lệnh create/deleteById gọi qua service khác — bọc transaction() mà
+        // không xuyên manager chỉ tạo cảm giác an toàn giả, không có tác dụng thật.
         for (const section of snapshotSections) {
             const { id: _id, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = section as any;
             await this.sectionService.create({ ...rest, pageId: version.pageId });
+        }
+        for (const section of currentSections) {
+            await this.sectionService.deleteById(section.id);
         }
         return version;
     }
