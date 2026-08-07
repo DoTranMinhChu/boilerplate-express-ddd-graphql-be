@@ -30,7 +30,19 @@ describe('PageVersionService', () => {
             const result = await service.listByPage('page-1');
 
             expect(result).toEqual([versions[0]]);
-            expect(fakeRepo.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' }, order: { createdAt: 'DESC' } });
+            expect(fakeRepo.findByCondition).toHaveBeenCalledWith({
+                where: { pageId: 'page-1' },
+                order: { createdAt: 'DESC' },
+                select: {
+                    id: true,
+                    pageId: true,
+                    publishedBy: true,
+                    label: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    deletedAt: true,
+                },
+            });
         });
     });
 

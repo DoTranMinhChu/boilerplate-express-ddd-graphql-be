@@ -240,7 +240,7 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         @Args('label', { type: String }) label: string | undefined,
         @GQLCurrentUser() account: IAccount,
     ) {
-        const sections = await this.sectionService.findByPage(id);
+        const sections = await this.sectionService.findByCondition({ where: { pageId: id }, order: { order: 'ASC' } as any });
         return this.pageService.publish(id, sections, account?.id, label);
     }
 

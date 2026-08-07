@@ -14,7 +14,23 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
     }
 
     async listByPage(pageId: string): Promise<PageVersionEntity[]> {
-        return this.findByCondition({ where: { pageId }, order: { createdAt: 'DESC' } as any });
+        // Loại `snapshot` (JSONB page+sections đầy đủ, có thể vài trăm KB) khỏi
+        // kết quả — resolver/FE chỉ hiển thị 5 cột scalar này mỗi lần mở panel
+        // lịch sử, không cần snapshot. restore() đọc snapshot riêng qua findById(),
+        // không qua listByPage(), nên không bị ảnh hưởng.
+        return this.findByCondition({
+            where: { pageId },
+            order: { createdAt: 'DESC' } as any,
+            select: {
+                id: true,
+                pageId: true,
+                publishedBy: true,
+                label: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+            },
+        });
     }
 
     /** Khôi phục: xoá toàn bộ Section hiện tại của trang rồi tạo lại đúng theo
