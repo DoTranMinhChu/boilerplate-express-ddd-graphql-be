@@ -7,7 +7,9 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/contentEntry.entity';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
+import { ContentEntryUsageService } from '@/modules/contentEntry/application/services/contentEntryUsage.service';
 import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryInput, MixedFeedQueryInput, BacklinkEntriesQueryInput, ContentEntryFieldFilterInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
+import { ContentEntryUsageLocationType } from '@/modules/contentEntry/application/dto/contentEntryUsage.dto';
 import { PageService } from '@/modules/page/application/services/page.service';
 import { RedirectService } from '@/modules/page/application/services/redirect.service';
 import { EPageType } from '@/modules/page/application/enums/page.enum';
@@ -21,6 +23,7 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     private contentEntryService: ContentEntryService;
     private pageService = new PageService();
     private redirectService = new RedirectService();
+    private contentEntryUsageService = new ContentEntryUsageService();
 
     constructor() {
         const service = new ContentEntryService();
@@ -89,6 +92,15 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     @GQLPublic()
     async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput) {
         return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12);
+    }
+
+    /** Công cụ quản trị: liệt kê CHÍNH XÁC trang/khối nào đang thực sự dùng 1 Content Entry —
+     * thay cho suy đoán 1 URL duy nhất. Chỉ staff dùng (không phải API công khai). */
+    @Query('getContentEntryUsage', { returnType: [ContentEntryUsageLocationType] })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.CONTENT_ENTRY_VIEW, onForbidden: 'throw' })
+    async getContentEntryUsage(@Args('entryId') entryId: string) {
+        return this.contentEntryUsageService.findUsageLocations(entryId);
     }
 
     @Query('getAllContentEntry', { returnType: ContentEntryPagination })
