@@ -12,5 +12,6 @@ export enum EFieldType {
     VIDEO = 'VIDEO',
     LINK = 'LINK',
     RELATION = 'RELATION',
+    REPEATER = 'REPEATER',
 }
 RegisterEnum(EFieldType, 'EFieldType');

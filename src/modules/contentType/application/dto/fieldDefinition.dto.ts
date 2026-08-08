@@ -19,6 +19,16 @@ export class FieldDefinitionType {
      * WYSIWYG instead of blank. Never used on the public site (real entry data
      * always wins there). */
     @Field({ type: String, nullable: true }) mockValue?: string;
+
+    /** Chỉ dùng khi type === REPEATER — mô tả cấu trúc của MỖI item trong danh
+     * sách lặp lại (vd FAQ: {question, answer}). Thunk `() => [...]` bắt buộc —
+     * tham chiếu chính class đang định nghĩa trong thân class của nó là 1 kiểu
+     * TDZ hazard nếu evaluate ngay lập tức; decorator `@Field` này đã có sẵn cơ
+     * chế nhận diện thunk đã-wrap-sẵn (xem graphQL.decorators.ts:63-108) nên
+     * không cần thêm gì khác. Hỗ trợ lồng 1 cấp là đủ (đúng khuôn REPEATER đã
+     * dùng cho khối ở Phase 1). */
+    @Field({ type: () => [FieldDefinitionType], nullable: true })
+    itemFields?: FieldDefinitionType[];
 }
 
 @InputType('FieldDefinitionInput')
