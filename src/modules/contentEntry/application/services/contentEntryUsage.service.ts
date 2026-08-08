@@ -11,7 +11,7 @@ export interface UsageLocation {
     pagePath: string;
     sectionId?: string;
     sectionType: string;
-    matchKind: 'detail' | 'pinned' | 'dynamic-confirmed' | 'dynamic-possible' | 'contextual';
+    matchKind: 'detail' | 'detail-not-visible' | 'pinned' | 'pinned-not-visible' | 'dynamic-confirmed' | 'dynamic-possible' | 'contextual';
     url?: string;
 }
 
@@ -50,21 +50,6 @@ export class ContentEntryUsageService {
 
         const results: UsageLocation[] = [];
 
-        // 1. Trang Chi tiết gắn với Content Type của entry — suy đoán "1 URL duy
-        // nhất" cũ, vẫn hữu ích nên giữ lại như 1 mục trong danh sách (không còn
-        // là kết quả DUY NHẤT như trước).
-        const detailPage = publishedPages.find((p) => p.pageType === EPageType.COLLECTION_DETAIL && p.contentTypeId === entry.contentTypeId);
-        if (detailPage) {
-            results.push({
-                pageId: detailPage.id,
-                pageLabel: detailPage.internalName,
-                pagePath: detailPage.path,
-                sectionType: 'collection-detail-page',
-                matchKind: 'detail',
-                url: detailPage.path.replace(':slug', entry.slug),
-            });
-        }
-
         const sections = await this.sectionRepository.findByCondition({
             where: { pageId: In(publishedPages.map((p) => p.id)), enabled: true },
         });
@@ -76,6 +61,36 @@ export class ContentEntryUsageService {
         const contentType = await this.contentTypeService.findById(entry.contentTypeId);
         const visibilityExclusions = (contentType?.contentVisibilityRules || []).map((r) => ({ field: r.field, operator: r.operator, value: r.value }));
 
+        // Entry này có THẬT SỰ hiển thị công khai không (đủ điều kiện status=PUBLISHED VÀ
+        // không bị Content Visibility Rule nào ẩn) — tính 1 lần, tái dùng đúng findPublicList
+        // (không viết logic song song), dùng cho nhánh 'detail'/'pinned' bên dưới để tra cứu
+        // không báo sai "đang hiển thị" cho 1 entry Nháp hoặc đang bị ẩn. Nhánh
+        // 'dynamic-confirmed'/mixed-feed đã tự chạy lại findPublicList riêng của chúng, không
+        // cần dùng biến này.
+        const publiclyVisible = await this.contentEntryRepository.findPublicList({
+            contentTypeId: entry.contentTypeId,
+            ids: [entryId],
+            filters: [],
+            visibilityExclusions,
+            limit: 1,
+        });
+        const isPubliclyVisible = publiclyVisible.length > 0;
+
+        // 1. Trang Chi tiết gắn với Content Type của entry — suy đoán "1 URL duy
+        // nhất" cũ, vẫn hữu ích nên giữ lại như 1 mục trong danh sách (không còn
+        // là kết quả DUY NHẤT như trước).
+        const detailPage = publishedPages.find((p) => p.pageType === EPageType.COLLECTION_DETAIL && p.contentTypeId === entry.contentTypeId);
+        if (detailPage) {
+            results.push({
+                pageId: detailPage.id,
+                pageLabel: detailPage.internalName,
+                pagePath: detailPage.path,
+                sectionType: 'collection-detail-page',
+                matchKind: isPubliclyVisible ? 'detail' : 'detail-not-visible',
+                url: isPubliclyVisible ? detailPage.path.replace(':slug', entry.slug) : undefined,
+            });
+        }
+
         for (const section of sections) {
             const page = pageById.get(section.pageId);
             if (!page) continue;
@@ -83,7 +98,14 @@ export class ContentEntryUsageService {
 
             if (SINGLE_SOURCE_TYPES.includes(section.type)) {
                 if (ds.mode === 'manual' && Array.isArray(ds.ids) && ds.ids.includes(entryId)) {
-                    results.push({ pageId: page.id, pageLabel: page.internalName, pagePath: page.path, sectionId: section.id, sectionType: section.type, matchKind: 'pinned' });
+                    results.push({
+                        pageId: page.id,
+                        pageLabel: page.internalName,
+                        pagePath: page.path,
+                        sectionId: section.id,
+                        sectionType: section.type,
+                        matchKind: isPubliclyVisible ? 'pinned' : 'pinned-not-visible',
+                    });
                     continue;
                 }
                 if (ds.mode === 'dynamic' && ds.query?.contentTypeId === entry.contentTypeId) {

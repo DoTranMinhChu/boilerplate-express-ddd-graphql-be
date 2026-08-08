@@ -67,8 +67,8 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         expect(result).toEqual([]);
     });
 
-    it('có trang Chi tiết gắn Content Type của entry -> matchKind detail, url đúng slug', async () => {
-        const { service } = makeService({ entry: ENTRY, pages: [DETAIL_PAGE], sections: [] });
+    it('có trang Chi tiết gắn Content Type của entry, entry hiển thị công khai thật (findPublicList trả về entry) -> matchKind detail, url đúng slug', async () => {
+        const { service } = makeService({ entry: ENTRY, pages: [DETAIL_PAGE], sections: [], findPublicListResult: [{ id: 'entry-1' }] });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual({
             pageId: 'page-detail',
@@ -80,18 +80,46 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         });
     });
 
-    it('content-grid mode manual ghim id entry -> matchKind pinned', async () => {
+    it('có trang Chi tiết gắn Content Type nhưng entry KHÔNG hiển thị công khai thật (findPublicList trả về []) -> matchKind detail-not-visible, không có url', async () => {
+        const { service } = makeService({ entry: ENTRY, pages: [DETAIL_PAGE], sections: [], findPublicListResult: [] });
+        const result = await service.findUsageLocations('entry-1');
+        expect(result).toContainEqual({
+            pageId: 'page-detail',
+            pageLabel: 'Trang Chi tiết Bài viết',
+            pagePath: '/bai-viet/:slug',
+            sectionType: 'collection-detail-page',
+            matchKind: 'detail-not-visible',
+            url: undefined,
+        });
+    });
+
+    it('content-grid mode manual ghim id entry, entry hiển thị công khai thật -> matchKind pinned', async () => {
         const page = { id: 'page-home', internalName: 'Trang chủ', path: '/', pageType: EPageType.STATIC_MODULAR, status: EPageStatus.PUBLISHED };
         const section = {
             id: 'sec-1', pageId: 'page-home', type: 'content-grid', enabled: true,
             dataSource: { mode: 'manual', ids: ['entry-1', 'entry-2'] },
         };
-        const { service, fakeContentEntryRepository } = makeService({ entry: ENTRY, pages: [page], sections: [section] });
+        const { service, fakeContentEntryRepository } = makeService({ entry: ENTRY, pages: [page], sections: [section], findPublicListResult: [{ id: 'entry-1' }] });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual({
             pageId: 'page-home', pageLabel: 'Trang chủ', pagePath: '/', sectionId: 'sec-1', sectionType: 'content-grid', matchKind: 'pinned',
         });
-        expect(fakeContentEntryRepository.findPublicList).not.toHaveBeenCalled();
+        // Nhánh 'manual'/pinned tự nó KHÔNG chạy thêm findPublicList riêng — chỉ có đúng 1 lần gọi
+        // là lượt kiểm tra "hiển thị công khai thật" chung đầu hàm findUsageLocations.
+        expect(fakeContentEntryRepository.findPublicList).toHaveBeenCalledTimes(1);
+    });
+
+    it('content-grid mode manual ghim id entry nhưng entry bị Content Visibility Rule ẩn (findPublicList trả về []) -> matchKind pinned-not-visible', async () => {
+        const page = { id: 'page-home', internalName: 'Trang chủ', path: '/', pageType: EPageType.STATIC_MODULAR, status: EPageStatus.PUBLISHED };
+        const section = {
+            id: 'sec-1', pageId: 'page-home', type: 'content-grid', enabled: true,
+            dataSource: { mode: 'manual', ids: ['entry-1', 'entry-2'] },
+        };
+        const { service } = makeService({ entry: ENTRY, pages: [page], sections: [section], findPublicListResult: [] });
+        const result = await service.findUsageLocations('entry-1');
+        expect(result).toContainEqual({
+            pageId: 'page-home', pageLabel: 'Trang chủ', pagePath: '/', sectionId: 'sec-1', sectionType: 'content-grid', matchKind: 'pinned-not-visible',
+        });
     });
 
     it('content-grid mode dynamic, cùng contentTypeId, không filter phụ thuộc URL, entry nằm trong kết quả findPublicList -> dynamic-confirmed', async () => {
@@ -126,7 +154,7 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         expect(result.find((r) => r.sectionId === 'sec-1')).toBeUndefined();
     });
 
-    it('content-grid mode dynamic có filter valueSource pathParam -> dynamic-possible, KHÔNG gọi findPublicList', async () => {
+    it('content-grid mode dynamic có filter valueSource pathParam -> dynamic-possible, nhánh dynamic tự nó KHÔNG gọi thêm findPublicList', async () => {
         const page = { id: 'page-home', internalName: 'Trang chủ', path: '/', pageType: EPageType.STATIC_MODULAR, status: EPageStatus.PUBLISHED };
         const section = {
             id: 'sec-1', pageId: 'page-home', type: 'content-grid', enabled: true,
@@ -137,10 +165,12 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         expect(result).toContainEqual({
             pageId: 'page-home', pageLabel: 'Trang chủ', pagePath: '/', sectionId: 'sec-1', sectionType: 'content-grid', matchKind: 'dynamic-possible',
         });
-        expect(fakeContentEntryRepository.findPublicList).not.toHaveBeenCalled();
+        // Chỉ có đúng 1 lần gọi findPublicList — lượt kiểm tra "hiển thị công khai thật" chung
+        // đầu hàm; nhánh dynamic-possible (có filter phụ thuộc URL) tự nó không chạy lại query.
+        expect(fakeContentEntryRepository.findPublicList).toHaveBeenCalledTimes(1);
     });
 
-    it('content-grid mode dynamic có filter valueSource queryParam -> dynamic-possible, KHÔNG gọi findPublicList', async () => {
+    it('content-grid mode dynamic có filter valueSource queryParam -> dynamic-possible, nhánh dynamic tự nó KHÔNG gọi thêm findPublicList', async () => {
         const page = { id: 'page-home', internalName: 'Trang chủ', path: '/', pageType: EPageType.STATIC_MODULAR, status: EPageStatus.PUBLISHED };
         const section = {
             id: 'sec-1', pageId: 'page-home', type: 'content-grid', enabled: true,
@@ -149,7 +179,7 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         const { service, fakeContentEntryRepository } = makeService({ entry: ENTRY, pages: [page], sections: [section] });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual(expect.objectContaining({ sectionId: 'sec-1', matchKind: 'dynamic-possible' }));
-        expect(fakeContentEntryRepository.findPublicList).not.toHaveBeenCalled();
+        expect(fakeContentEntryRepository.findPublicList).toHaveBeenCalledTimes(1);
     });
 
     it('related-entries trên trang Chi tiết cùng content type -> matchKind contextual', async () => {
@@ -188,18 +218,18 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         expect(result).toContainEqual(expect.objectContaining({ sectionId: 'sec-mixed', matchKind: 'dynamic-confirmed' }));
     });
 
-    it('project-showcase (dùng chung DataSourceFields với content-grid) mode manual ghim entry -> matchKind pinned', async () => {
+    it('project-showcase (dùng chung DataSourceFields với content-grid) mode manual ghim entry, hiển thị công khai thật -> matchKind pinned', async () => {
         const page = { id: 'page-home', internalName: 'Trang chủ', path: '/', pageType: EPageType.STATIC_MODULAR, status: EPageStatus.PUBLISHED };
         const section = { id: 'sec-showcase', pageId: 'page-home', type: 'project-showcase', enabled: true, dataSource: { mode: 'manual', ids: ['entry-1'] } };
-        const { service } = makeService({ entry: ENTRY, pages: [page], sections: [section] });
+        const { service } = makeService({ entry: ENTRY, pages: [page], sections: [section], findPublicListResult: [{ id: 'entry-1' }] });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual(expect.objectContaining({ sectionId: 'sec-showcase', sectionType: 'project-showcase', matchKind: 'pinned' }));
     });
 
-    it('logo-grid (dùng chung DataSourceFields với content-grid) mode manual ghim entry -> matchKind pinned', async () => {
+    it('logo-grid (dùng chung DataSourceFields với content-grid) mode manual ghim entry, hiển thị công khai thật -> matchKind pinned', async () => {
         const page = { id: 'page-home', internalName: 'Trang chủ', path: '/', pageType: EPageType.STATIC_MODULAR, status: EPageStatus.PUBLISHED };
         const section = { id: 'sec-logo', pageId: 'page-home', type: 'logo-grid', enabled: true, dataSource: { mode: 'manual', ids: ['entry-1'] } };
-        const { service } = makeService({ entry: ENTRY, pages: [page], sections: [section] });
+        const { service } = makeService({ entry: ENTRY, pages: [page], sections: [section], findPublicListResult: [{ id: 'entry-1' }] });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual(expect.objectContaining({ sectionId: 'sec-logo', sectionType: 'logo-grid', matchKind: 'pinned' }));
     });
