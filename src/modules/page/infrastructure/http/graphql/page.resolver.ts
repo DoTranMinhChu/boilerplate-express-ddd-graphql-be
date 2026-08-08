@@ -206,8 +206,17 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 continue;
             }
 
-            const entries = await this.contentEntryService.findByCondition({
-                where: { contentTypeId: page.contentTypeId, status: EPageStatus.PUBLISHED },
+            if (!page.contentTypeId) continue;
+
+            // Sitemap luôn công khai (crawler không có token) -> viewerRoles rỗng, không có
+            // limit (cần TOÀN BỘ entry đang publish, không phải 1 trang danh sách bị giới hạn
+            // số lượng) -> route qua findPublicEntries để Content Visibility Rules (mục 4
+            // design Phase 2b) áp dụng ở đây cũng như mọi read công khai khác -- entry bị ẩn
+            // không được xuất hiện trong sitemap.xml để crawler lập chỉ mục.
+            const entries = await this.contentEntryService.findPublicEntries({
+                contentTypeId: page.contentTypeId,
+                filters: [],
+                viewerRoles: [],
             });
             for (const entry of entries) {
                 if (entry.seo?.robotsIndex === false) continue;

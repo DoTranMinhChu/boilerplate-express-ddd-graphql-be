@@ -209,7 +209,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         ids?: string[];
         filters: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
-        limit: number;
+        limit?: number;
         viewerRoles: ERole[];
     }): Promise<ContentEntryEntity[]> {
         const contentType = await this.contentTypeService.findById(params.contentTypeId);

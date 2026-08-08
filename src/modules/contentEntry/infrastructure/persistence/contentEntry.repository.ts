@@ -134,7 +134,7 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         filters: FieldCondition[];
         visibilityExclusions: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
-        limit: number;
+        limit?: number;
     }): Promise<ContentEntryEntity[]> {
         const qb = this.repository.createQueryBuilder('e')
             .where('e."contentTypeId" = :contentTypeId', { contentTypeId: params.contentTypeId })
@@ -154,6 +154,7 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
             qb.orderBy('e."createdAt"', 'DESC');
         }
 
-        return qb.take(params.limit).getMany();
+        if (params.limit !== undefined) qb.take(params.limit);
+        return qb.getMany();
     }
 }
