@@ -129,4 +129,21 @@ describe('ContentEntryService — Content Visibility Rules enforcement', () => {
             visibilityExclusions: [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
         }));
     });
+
+    it('findPublicEntries does not cap results when ids are given and no explicit limit is passed', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', ids: ['a', 'b', 'c'], filters: [], limit: undefined, viewerRoles: [] });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
+    });
+
+    it('findRelated fails CLOSED (throws) rather than silently skipping visibility rules when the content type cannot be found', async () => {
+        const fakeContentTypeService = { findById: jest.fn(async () => null) };
+        const fakeRepo = {
+            findById: jest.fn(async () => ({ id: 'e0', contentTypeId: 'ct-missing', data: {} })),
+            findByFieldValueAny: jest.fn(async () => []),
+            findPublicList: jest.fn(async () => []),
+        };
+        const service = new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
+        await expect(service.findRelated('e0', 'someField', 3, [])).rejects.toThrow();
+    });
 });

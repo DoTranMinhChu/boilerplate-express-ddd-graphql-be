@@ -37,6 +37,19 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
      * đặt qua Content Type/Page Builder chứ không phải input khách public, vẫn không
      * tin tưởng mù quáng ranh giới đó ở tầng dựng SQL thô).
      */
+    /** "900000000" (chuỗi số hợp lệ, không rỗng) -> 900000000 (number thật). Rule/filter tác giả
+     * qua UI admin (ContentVisibilityRulesInput/GenericFilterListInput) chỉ có thể tạo ra giá trị
+     * dạng chuỗi (input text, URL path/query param đều là text) — không coerce thì mọi so sánh số
+     * ($gt/$gte/$lt/$lte/$between) trên field JSONB số bị so bằng TEXT (vd "1000000000" >=
+     * "900000000" là FALSE vì '1' < '9' theo thứ tự chữ cái), khiến rule/filter số âm thầm sai —
+     * đây chính là lỗ hổng review cuối cùng phát hiện (Content Visibility Rule số bị "fail open").
+     */
+    private coerceNumericIfPossible(v: unknown): unknown {
+        if (typeof v === 'number') return v;
+        if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+        return v;
+    }
+
     private applyFieldCondition(
         qb: SelectQueryBuilder<ContentEntryEntity>,
         alias: string,
@@ -48,9 +61,13 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
             throw new BadRequestException(`Tên field "${cond.field}" không hợp lệ.`);
         }
 
+        const coercedValue = Array.isArray(cond.value)
+            ? cond.value.map((v) => this.coerceNumericIfPossible(v))
+            : this.coerceNumericIfPossible(cond.value);
+
         const isRealColumn = this.hasColumn(cond.field);
-        const isNumeric = typeof cond.value === 'number'
-            || (Array.isArray(cond.value) && cond.value.length > 0 && cond.value.every((v) => typeof v === 'number'));
+        const isNumeric = typeof coercedValue === 'number'
+            || (Array.isArray(coercedValue) && coercedValue.length > 0 && coercedValue.every((v) => typeof v === 'number'));
         const columnExpr = isRealColumn
             ? `${alias}."${cond.field}"`
             : isNumeric
@@ -60,20 +77,21 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         let clause: string;
         let params: Record<string, unknown>;
         switch (cond.operator) {
-            case EFilterOperator.EQUALS: clause = `${columnExpr} = :${paramKey}`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.NOT_EQUALS: clause = `${columnExpr} != :${paramKey}`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.GREATER_THAN: clause = `${columnExpr} > :${paramKey}`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.GREATER_THAN_OR_EQUAL: clause = `${columnExpr} >= :${paramKey}`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.LESS_THAN: clause = `${columnExpr} < :${paramKey}`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.LESS_THAN_OR_EQUAL: clause = `${columnExpr} <= :${paramKey}`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.IN: clause = `${columnExpr} IN (:...${paramKey})`; params = { [paramKey]: cond.value }; break;
-            case EFilterOperator.NOT_IN: clause = `${columnExpr} NOT IN (:...${paramKey})`; params = { [paramKey]: cond.value }; break;
+            case EFilterOperator.EQUALS: clause = `${columnExpr} = :${paramKey}`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.NOT_EQUALS: clause = `${columnExpr} != :${paramKey}`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.GREATER_THAN: clause = `${columnExpr} > :${paramKey}`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.GREATER_THAN_OR_EQUAL: clause = `${columnExpr} >= :${paramKey}`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.LESS_THAN: clause = `${columnExpr} < :${paramKey}`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.LESS_THAN_OR_EQUAL: clause = `${columnExpr} <= :${paramKey}`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.IN: clause = `${columnExpr} IN (:...${paramKey})`; params = { [paramKey]: coercedValue }; break;
+            case EFilterOperator.NOT_IN: clause = `${columnExpr} NOT IN (:...${paramKey})`; params = { [paramKey]: coercedValue }; break;
             case EFilterOperator.BETWEEN: {
-                const [min, max] = cond.value as [unknown, unknown];
+                const [min, max] = coercedValue as [unknown, unknown];
                 clause = `${columnExpr} BETWEEN :${paramKey}Min AND :${paramKey}Max`;
                 params = { [`${paramKey}Min`]: min, [`${paramKey}Max`]: max };
                 break;
             }
+            case EFilterOperator.LIKE: clause = `${columnExpr} ILIKE :${paramKey}`; params = { [paramKey]: `%${cond.value}%` }; break;
             default:
                 throw new BadRequestException(`Toán tử "${cond.operator}" không được hỗ trợ cho field động.`);
         }

@@ -83,11 +83,22 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
     }
 
     /** Rule nào của ContentType này còn phải áp cho viewerRoles hiện tại (mục 4
-     * design) -> map sang FieldCondition cho tầng query builder (Task 5). ContentType
-     * không tồn tại -> [] (caller tự quyết định phải làm gì, không throw ở đây). */
+     * design) -> map sang FieldCondition cho tầng query builder (Task 5).
+     *
+     * Content Type không tìm thấy (vd bị soft-delete trong khi entry của nó vẫn còn PUBLISHED —
+     * trạng thái bất thường nhưng có thể xảy ra) -> THROW thay vì âm thầm trả về [] (không rule
+     * nào bị áp) — findRelated/findBacklinks/findMixed không tự kiểm tra contentType tồn tại
+     * trước khi gọi hàm này (khác findPublicEntries, đã tự return [] sớm), nên nếu hàm này im
+     * lặng trả về [] thì 3 đường đọc công khai đó sẽ "fail open" (mất toàn bộ Content Visibility
+     * Rules) đúng lúc dữ liệu bất thường nhất. Throw -> GraphQL trả lỗi, không rò dữ liệu -> fail
+     * CLOSED, đồng nhất cho cả 4 phương thức. findPublicEntries không bị ảnh hưởng (đã tự return
+     * [] sớm hơn, trước khi gọi tới đây).
+     */
     private async resolveVisibilityExclusions(contentTypeId: string, viewerRoles: ERole[]): Promise<FieldCondition[]> {
         const contentType = await this.contentTypeService.findById(contentTypeId);
-        if (!contentType) return [];
+        if (!contentType) {
+            throw new NotFoundException(`Không tìm thấy content type (id: ${contentTypeId}) khi áp dụng luật hiển thị.`);
+        }
         const enforced = resolveEnforcedVisibilityRules(contentType.contentVisibilityRules || [], viewerRoles);
         return enforced.map((r: ContentVisibilityRuleType) => ({ field: r.field, operator: r.operator, value: r.value }));
     }

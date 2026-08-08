@@ -63,7 +63,28 @@ describe('ContentEntryRepository.applyFieldCondition (private, accessed via any)
     it('rejects an unsupported operator', () => {
         const repo = buildTestRepository(['id']);
         const { qb } = fakeQueryBuilder();
-        expect(() => (repo as any).applyFieldCondition(qb, 'e', { field: 'budget', operator: '$like', value: 'x' }, 'p0', false))
+        expect(() => (repo as any).applyFieldCondition(qb, 'e', { field: 'budget', operator: '$bogus', value: 'x' }, 'p0', false))
             .toThrow();
+    });
+
+    it('coerces a numeric-looking STRING value to a real number for a numeric comparison (UI-authored rules are always strings)', () => {
+        const repo = buildTestRepository(['id']);
+        const { qb, calls } = fakeQueryBuilder();
+        (repo as any).applyFieldCondition(qb, 'e', { field: 'budget', operator: EFilterOperator.GREATER_THAN_OR_EQUAL, value: '900000000' }, 'p0', false);
+        expect(calls).toEqual([{ sql: "(e.data ->> 'budget')::numeric >= :p0", params: { p0: 900000000 } }]);
+    });
+
+    it('does not coerce a genuinely non-numeric string', () => {
+        const repo = buildTestRepository(['id']);
+        const { qb, calls } = fakeQueryBuilder();
+        (repo as any).applyFieldCondition(qb, 'e', { field: 'category', operator: EFilterOperator.EQUALS, value: 'ao-thun' }, 'p0', false);
+        expect(calls).toEqual([{ sql: "e.data ->> 'category' = :p0", params: { p0: 'ao-thun' } }]);
+    });
+
+    it('builds an ILIKE condition with %wrapping% for $like', () => {
+        const repo = buildTestRepository(['id']);
+        const { qb, calls } = fakeQueryBuilder();
+        (repo as any).applyFieldCondition(qb, 'e', { field: 'category', operator: EFilterOperator.LIKE, value: 'ao' }, 'p0', false);
+        expect(calls).toEqual([{ sql: "e.data ->> 'category' ILIKE :p0", params: { p0: '%ao%' } }]);
     });
 });

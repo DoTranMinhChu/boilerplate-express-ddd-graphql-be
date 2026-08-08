@@ -30,7 +30,8 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     }
 
     @Query('getOneContentEntry', { returnType: ContentEntryEntity })
-    @GQLPublic()
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.CONTENT_ENTRY_VIEW, onForbidden: 'throw' })
     async getOneContentEntry(
         @Args('id') id: string,
         @GQLQuery() fieldOptions: GqlSelectOptions<ContentEntryEntity>,
@@ -62,7 +63,11 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
             ids: ids?.length ? ids : undefined,
             filters: (filters || []).map((f) => ({ field: f.field, operator: f.operator || '$eq', value: f.value })),
             sort: sortField ? { field: sortField, direction: sortDirection || 'DESC' } : undefined,
-            limit: limit || 12,
+            // Mode "manual" (ids) không tự ép limit=12 nếu caller không tự chỉ định — admin đã
+            // ghim CHÍNH XÁC những entry này, phải trả về đủ, không cắt bớt tuỳ tiện (bug thật:
+            // trước Phase 2b không có cap nào ở đây, hợp nhất qua findPublicEntries vô tình thêm
+            // cap 12 mặc định cho CẢ 2 mode). Mode "dynamic" (không có ids) vẫn mặc định 12 như cũ.
+            limit: limit ?? (ids?.length ? undefined : 12),
             viewerRoles: account?.roles ?? [],
         });
     }
