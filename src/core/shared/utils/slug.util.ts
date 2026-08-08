@@ -41,3 +41,27 @@ export function assertValidPagePath(path: string): void {
         throw new Error(`Path "${p}" trùng với khu vực hệ thống (${RESERVED_PATH_PREFIXES.join(', ')}).`);
     }
 }
+
+/**
+ * So khớp 1 path CỤ THỂ (vd "/danh-muc/ao-thun") với 1 pattern có thể chứa nhiều
+ * đoạn ":paramName" ở BẤT KỲ vị trí nào (vd "/danh-muc/:tenDanhMuc") — tổng quát hơn
+ * matchCollectionDetail() (chỉ hỗ trợ đúng 1 tham số ":slug" ở cuối). Trả về map
+ * params nếu khớp (rỗng nếu pattern không có tham số nào), null nếu không khớp
+ * (khác số đoạn, hoặc 1 đoạn literal không trùng).
+ */
+export function matchPathPattern(concretePath: string, patternPath: string): Record<string, string> | null {
+    const concreteSegments = concretePath.split('/').filter(Boolean);
+    const patternSegments = patternPath.split('/').filter(Boolean);
+    if (concreteSegments.length !== patternSegments.length) return null;
+
+    const params: Record<string, string> = {};
+    for (let i = 0; i < patternSegments.length; i++) {
+        const seg = patternSegments[i]!;
+        if (seg.startsWith(':')) {
+            params[seg.slice(1)] = concreteSegments[i]!;
+        } else if (seg !== concreteSegments[i]) {
+            return null;
+        }
+    }
+    return params;
+}

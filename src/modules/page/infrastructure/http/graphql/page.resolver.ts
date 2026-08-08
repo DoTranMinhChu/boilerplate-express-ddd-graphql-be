@@ -123,6 +123,23 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
             };
         }
 
+        const paramMatch = await this.pageService.findByParamPattern(path, preview);
+        if (paramMatch) {
+            const { page, params } = paramMatch;
+            const [sections, { header, footer }] = await Promise.all([
+                this.sectionService.findByPage(page.id),
+                this.resolveHeaderFooter(page),
+            ]);
+            return {
+                page,
+                sections,
+                seo: { ...page.seo },
+                params,
+                header,
+                footer,
+            };
+        }
+
         return null;
     }
 

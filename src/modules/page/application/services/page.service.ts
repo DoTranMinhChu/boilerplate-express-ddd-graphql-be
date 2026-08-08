@@ -3,10 +3,10 @@ import { PageRepository } from '../../infrastructure/persistence/page.repository
 import { BaseService } from '@/core/application/services/base.service';
 import { ConflictException, NotFoundException } from '@/core/domain/exceptions/appException';
 import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.enum';
-import { assertValidPagePath, normalizePagePath } from '@/core/shared/utils/slug.util';
+import { assertValidPagePath, matchPathPattern, normalizePagePath } from '@/core/shared/utils/slug.util';
 import { RedirectService } from './redirect.service';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
-import { DeepPartial } from 'typeorm';
+import { DeepPartial, In, Like } from 'typeorm';
 
 export class PageService extends BaseService<PageEntity> {
     constructor(
@@ -106,5 +106,28 @@ export class PageService extends BaseService<PageEntity> {
         });
         if (!page) return null;
         return { page, slug };
+    }
+
+    /**
+     * Match path với BẤT KỲ page STATIC_MODULAR/SPECIAL nào có ":param" trong path
+     * đã lưu (vd "/danh-muc/:tenDanhMuc") — tổng quát hơn matchCollectionDetail (chỉ
+     * ":slug" ở cuối). Số page có ":" trong path luôn nhỏ (đa số path là tĩnh, không
+     * tham số) nên fetch hết rồi so khớp trong bộ nhớ là đủ nhanh, không cần tối ưu
+     * bằng 1 query khớp chính xác như matchCollectionDetail.
+     * KHÔNG xử lý COLLECTION_DETAIL ở đây (đã có matchCollectionDetail riêng, gọi
+     * TRƯỚC hàm này ở resolvePage) — path nhiều tham số động cho COLLECTION_DETAIL
+     * (vd "/:category/:slug") vẫn là phần mở rộng của Phase 3, không xử lý ở đây.
+     */
+    async findByParamPattern(path: string, preview = false): Promise<{ page: PageEntity; params: Record<string, string> } | null> {
+        const candidates = await this.pageRepository.findByCondition({
+            where: preview
+                ? { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%') }
+                : { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), status: EPageStatus.PUBLISHED },
+        });
+        for (const page of candidates) {
+            const params = matchPathPattern(path, page.path);
+            if (params) return { page, params };
+        }
+        return null;
     }
 }
