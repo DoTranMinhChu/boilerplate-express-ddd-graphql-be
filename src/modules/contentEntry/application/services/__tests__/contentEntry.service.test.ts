@@ -110,4 +110,23 @@ describe('ContentEntryService — Content Visibility Rules enforcement', () => {
             [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
         );
     });
+
+    it('findBacklinks forwards the enforced visibility exclusions (resolved against sourceContentTypeId, not the viewed entry)', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        fakeRepo.findByFieldValueAny = jest.fn(async () => []);
+        await service.findBacklinks('some-entry-id', 'ct-restricted', 'budget', 12, []);
+        expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
+            'ct-restricted', 'budget', ['some-entry-id'], undefined, 12,
+            [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+        );
+    });
+
+    it('findMixed forwards the enforced visibility exclusions independently per source', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findMixed([{ contentTypeId: 'ct-restricted', limit: 5 }], 12, []);
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({
+            contentTypeId: 'ct-restricted',
+            visibilityExclusions: [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+        }));
+    });
 });
