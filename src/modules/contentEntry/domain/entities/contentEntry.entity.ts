@@ -42,4 +42,14 @@ export class ContentEntryEntity extends BaseEntity {
     @Field({ type: GraphQLMixed })
     @Column({ type: 'jsonb', default: {} })
     data!: Record<string, any>;
+
+    /** Đếm lượt xem — hệ thống tự tăng qua trackEntryView, KHÔNG phải field admin tự
+     * điền (khác `data`). Tăng atomic (repository.increment, UPDATE ... SET x = x+1),
+     * không phải đọc-sửa-ghi, để tránh mất lượt xem khi nhiều request cùng lúc. Là
+     * field sortable tổng hợp cho GenericDataSourceConfig (sort.field = "viewCount")
+     * dù không phải 1 FieldDefinition admin tự khai báo. */
+    @Field({ type: Number })
+    @Index()
+    @Column({ type: 'int', default: 0 })
+    viewCount!: number;
 }

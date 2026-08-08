@@ -138,6 +138,20 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         await this.contentEntryService.softDeleteById(id);
         return true;
     }
+
+    /**
+     * Tăng lượt xem — công khai, không cần login (mục 1 design Phase 2b). KHÔNG gắn
+     * vào pageResolver/SSR — mỗi lần render trang không phải 1 "lượt xem" thật (F5,
+     * crawler...). FE gọi mutation này 1 lần, phía client, sau khi trang đã hydrate,
+     * tự dedup qua sessionStorage (xem ContentDetailSection.tsx) — v1 cố ý đơn giản,
+     * không chặn bot/nhiều tab (đã thống nhất với chủ dự án, xem design doc mục 1).
+     */
+    @Mutation('trackEntryView', { returnType: Boolean })
+    @GQLPublic()
+    async trackEntryView(@Args('entryId') entryId: string) {
+        await this.contentEntryService.trackView(entryId);
+        return true;
+    }
 }
 
 export default ContentEntryResolver;

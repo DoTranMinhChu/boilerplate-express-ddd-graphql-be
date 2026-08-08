@@ -111,6 +111,14 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         return { entry, oldSlug: current.slug, contentTypeId: current.contentTypeId };
     }
 
+    /** Tăng viewCount atomic (UPDATE ... SET "viewCount" = "viewCount" + 1) — không
+     * đọc-sửa-ghi nên nhiều request cùng lúc không làm mất lượt xem. Không throw khi
+     * id không tồn tại (increment() trên 0 dòng chỉ là no-op) — gọi từ 1 mutation công
+     * khai, không muốn lộ "entry này tồn tại hay không" qua có/không có lỗi. */
+    async trackView(id: string): Promise<void> {
+        await this.contentEntryRepository.increment({ id }, 'viewCount', 1);
+    }
+
     /**
      * "Nội dung liên quan" cho khối RELATED_ENTRIES trên trang Chi tiết — cùng
      * contentType, khớp `matchField` (vd cùng Loại tin tức) với entry đang xem, entry
