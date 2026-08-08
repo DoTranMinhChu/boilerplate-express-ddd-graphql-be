@@ -46,6 +46,21 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
                         throw new BadRequestException(`Field "${f.key}" (relation multiple) phải là danh sách id.`);
                     }
                     break;
+                case EFieldType.REPEATER:
+                    if (!Array.isArray(value)) throw new BadRequestException(`Field "${f.key}" phải là danh sách.`);
+                    if (f.itemFields?.length) {
+                        value.forEach((item, idx) => {
+                            try {
+                                this.validateData(f.itemFields!, item);
+                            } catch (err) {
+                                if (err instanceof BadRequestException) {
+                                    throw new BadRequestException(`Field "${f.key}" mục #${idx + 1}: ${err.message}`);
+                                }
+                                throw err;
+                            }
+                        });
+                    }
+                    break;
             }
         }
     }
