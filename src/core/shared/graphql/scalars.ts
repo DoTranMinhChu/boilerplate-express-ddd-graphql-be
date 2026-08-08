@@ -1,14 +1,19 @@
-import { GraphQLScalarType, Kind, GraphQLFloat, GraphQLInt } from 'graphql';
+import { GraphQLScalarType, Kind, GraphQLFloat, GraphQLInt, valueFromASTUntyped } from 'graphql';
 
 export const GraphQLMixed = new GraphQLScalarType({
     name: 'Mixed',
     description: 'Kiểu dữ liệu linh hoạt (JSON/Any)',
     serialize: (value) => value,
     parseValue: (value) => value,
-    parseLiteral: (ast) => {
-        if (ast.kind === Kind.OBJECT || ast.kind === Kind.LIST) return ast;
-        return null;
-    },
+    // `valueFromASTUntyped` là helper chuẩn của graphql-js cho đúng use-case "scalar
+    // Any/JSON" — parse ĐỆ QUY mọi AST node (scalar/object/list, kể cả lồng nhau) thành
+    // giá trị JS thuần, khác hẳn code cũ (chỉ nhận OBJECT/LIST, trả thẳng raw AST node
+    // thay vì giá trị đã parse, và null hoá mọi scalar leaf như string/number/boolean).
+    // Bug cũ chỉ lộ ra khi có caller thực sự gửi 1 giá trị Mixed dạng LITERAL (không qua
+    // variable $()) — đúng cách FE bắt buộc dùng cho list-typed arg (xem comment "ids"/
+    // "filters" trong contentEntry.service.ts phía FE) do hạn chế codegen của
+    // typed-graphql-builder với biến kiểu list.
+    parseLiteral: (ast) => valueFromASTUntyped(ast),
 });
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
