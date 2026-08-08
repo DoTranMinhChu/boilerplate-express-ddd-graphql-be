@@ -87,4 +87,11 @@ describe('ContentEntryRepository.applyFieldCondition (private, accessed via any)
         (repo as any).applyFieldCondition(qb, 'e', { field: 'category', operator: EFilterOperator.LIKE, value: 'ao' }, 'p0', false);
         expect(calls).toEqual([{ sql: "e.data ->> 'category' ILIKE :p0", params: { p0: '%ao%' } }]);
     });
+
+    it('does NOT apply a ::numeric cast for $like even when the search value looks numeric', () => {
+        const repo = buildTestRepository(['id']);
+        const { qb, calls } = fakeQueryBuilder();
+        (repo as any).applyFieldCondition(qb, 'e', { field: 'category', operator: EFilterOperator.LIKE, value: '123' }, 'p0', false);
+        expect(calls).toEqual([{ sql: "e.data ->> 'category' ILIKE :p0", params: { p0: '%123%' } }]);
+    });
 });

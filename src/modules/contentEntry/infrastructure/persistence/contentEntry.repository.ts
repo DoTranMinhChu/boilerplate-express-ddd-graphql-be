@@ -66,8 +66,13 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
             : this.coerceNumericIfPossible(cond.value);
 
         const isRealColumn = this.hasColumn(cond.field);
-        const isNumeric = typeof coercedValue === 'number'
+        const looksNumeric = typeof coercedValue === 'number'
             || (Array.isArray(coercedValue) && coercedValue.length > 0 && coercedValue.every((v) => typeof v === 'number'));
+        // $like/ILIKE là so sánh TEXT theo định nghĩa — kể cả khi giá trị tìm kiếm trông
+        // giống số (vd search "123" trên field text), KHÔNG được cast ::numeric, vì
+        // Postgres không có toán tử `numeric ~~* unknown` (ILIKE đòi hỏi text) — cast nhầm
+        // sẽ throw "operator does not exist" ở tầng DB (lỗi review C4 phát hiện).
+        const isNumeric = looksNumeric && cond.operator !== EFilterOperator.LIKE;
         const columnExpr = isRealColumn
             ? `${alias}."${cond.field}"`
             : isNumeric
