@@ -49,8 +49,8 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
      */
     @Query('pageResolver', { returnType: PageResolverResultType })
     @GQLPublic()
-    async pageResolver(@Args('path') rawPath: string, @GQLCurrentUser() account: IAccount): Promise<PageResolverResultType | null> {
-        return this.resolvePage(rawPath, false, account?.roles ?? []);
+    async pageResolver(@Args('path') rawPath: string): Promise<PageResolverResultType | null> {
+        return this.resolvePage(rawPath, false);
     }
 
     /**
@@ -61,8 +61,8 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     @Query('previewPageResolver', { returnType: PageResolverResultType })
     @GQLAuthorized(STAFF_ROLES)
     @GQLPermission({ permission: EPermission.PAGE_VIEW, onForbidden: 'throw' })
-    async previewPageResolver(@Args('path') rawPath: string, @GQLCurrentUser() account: IAccount): Promise<PageResolverResultType | null> {
-        return this.resolvePage(rawPath, true, account?.roles ?? []);
+    async previewPageResolver(@Args('path') rawPath: string): Promise<PageResolverResultType | null> {
+        return this.resolvePage(rawPath, true);
     }
 
     /** Trang tự chọn preset thắng; để trống thì dùng preset có isDefault=true; preset
@@ -79,7 +79,7 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         return { header: header ?? undefined, footer: footer ?? undefined };
     }
 
-    private async resolvePage(rawPath: string, preview: boolean, viewerRoles: ERole[]): Promise<PageResolverResultType | null> {
+    private async resolvePage(rawPath: string, preview: boolean): Promise<PageResolverResultType | null> {
         const path = normalizePagePath(rawPath);
 
         const exactPage = await this.pageService.findByExactPath(path, preview);
@@ -107,22 +107,19 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
             });
             if (!entry) return null;
 
-            // Content Visibility Rules (mục 4 design Phase 2b) phải áp dụng ở ĐÂY — đây là
-            // đường đọc entry công khai DUY NHẤT không đi qua getPublicContentEntries/
-            // findRelated/... (mọi trang Chi tiết công khai đều gọi pageResolver trước tiên).
-            // Không check thì 1 entry bị ẩn qua rule vẫn lộ nguyên vẹn khi khách vào thẳng
-            // URL, dù đã bị ẩn khỏi mọi danh sách/sitemap/related khác — đúng lỗ hổng review
-            // cuối cùng phát hiện. findPublicEntries ở mode "ids" đã được Task 6/7 chứng minh
-            // an toàn (áp visibilityExclusions trước khi lọc theo ids) — tái dùng thay vì viết
-            // logic kiểm tra riêng.
-            const visibleEntries = await this.contentEntryService.findPublicEntries({
-                contentTypeId: entry.contentTypeId,
-                ids: [entry.id],
-                filters: [],
-                limit: 1,
-                viewerRoles,
-            });
-            if (!visibleEntries.length) return null;
+            // Content Visibility Rules chỉ áp dụng cho đường công khai THẬT — nhân viên xem
+            // trước (preview=true) luôn thấy dữ liệu thật, không bị chặn (đã thống nhất với
+            // chủ dự án — xem design doc mục 1.2: Preview không phải nơi cần ẩn dữ liệu, chỉ
+            // trang công khai thật mới cần).
+            if (!preview) {
+                const visibleEntries = await this.contentEntryService.findPublicEntries({
+                    contentTypeId: entry.contentTypeId,
+                    ids: [entry.id],
+                    filters: [],
+                    limit: 1,
+                });
+                if (!visibleEntries.length) return null;
+            }
 
             const [sections, { header, footer }] = await Promise.all([
                 this.sectionService.findByPage(page.id),
@@ -225,15 +222,14 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
 
             if (!page.contentTypeId) continue;
 
-            // Sitemap luôn công khai (crawler không có token) -> viewerRoles rỗng, không có
-            // limit (cần TOÀN BỘ entry đang publish, không phải 1 trang danh sách bị giới hạn
-            // số lượng) -> route qua findPublicEntries để Content Visibility Rules (mục 4
-            // design Phase 2b) áp dụng ở đây cũng như mọi read công khai khác -- entry bị ẩn
-            // không được xuất hiện trong sitemap.xml để crawler lập chỉ mục.
+            // Sitemap luôn công khai (crawler không có token), không có limit (cần TOÀN BỘ
+            // entry đang publish, không phải 1 trang danh sách bị giới hạn số lượng) -> route
+            // qua findPublicEntries để Content Visibility Rules áp dụng ở đây cũng như mọi
+            // read công khai khác -- entry bị ẩn không được xuất hiện trong sitemap.xml để
+            // crawler lập chỉ mục.
             const entries = await this.contentEntryService.findPublicEntries({
                 contentTypeId: page.contentTypeId,
                 filters: [],
-                viewerRoles: [],
             });
             for (const entry of entries) {
                 if (entry.seo?.robotsIndex === false) continue;

@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { ContentEntryService } from '../contentEntry.service';
 import { BadRequestException } from '@/core/domain/exceptions/appException';
-import { ERole } from '@/core/shared/enums/account.enum';
 
 const FAQ_CONTENT_TYPE = {
     id: 'ct-1',
@@ -59,10 +58,7 @@ describe('ContentEntryService.validateData — REPEATER', () => {
 
 const RESTRICTED_CONTENT_TYPE = {
     id: 'ct-restricted',
-    fields: [{ key: 'budget', label: 'Ngân sách', type: 'NUMBER' }],
-    contentVisibilityRules: [
-        { field: 'budget', operator: '$gte', value: 1_000_000_000, allowedRoles: [ERole.ADMIN] },
-    ],
+    contentVisibilityRules: [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
 };
 
 function makeServiceWithVisibility() {
@@ -75,68 +71,53 @@ function makeServiceWithVisibility() {
     return { service, fakeRepo };
 }
 
-describe('ContentEntryService — Content Visibility Rules enforcement', () => {
-    it('findPublicEntries passes the enforced rule as a visibilityExclusion for an anonymous viewer', async () => {
+describe('ContentEntryService — Content Visibility Rules (luôn áp dụng, không phân theo role)', () => {
+    it('findPublicEntries luôn truyền visibilityExclusions từ rule đã khai báo', async () => {
         const { service, fakeRepo } = makeServiceWithVisibility();
-        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12, viewerRoles: [] });
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12 });
         expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({
             visibilityExclusions: [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
         }));
     });
 
-    it('findPublicEntries passes NO visibilityExclusion for a viewer whose role is allowed', async () => {
-        const { service, fakeRepo } = makeServiceWithVisibility();
-        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12, viewerRoles: [ERole.ADMIN] });
-        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ visibilityExclusions: [] }));
-    });
-
-    it('findPublicEntries returns [] and never queries when the content type does not exist', async () => {
+    it('findPublicEntries trả về [] và không query khi content type không tồn tại', async () => {
         const fakeContentTypeService = { findById: jest.fn(async () => null) };
         const fakeRepo = { findPublicList: jest.fn(async () => []), findByFieldValueAny: jest.fn(async () => []) };
         const service = new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
-        const result = await service.findPublicEntries({ contentTypeId: 'missing', filters: [], limit: 12, viewerRoles: [] });
+        const result = await service.findPublicEntries({ contentTypeId: 'missing', filters: [], limit: 12 });
         expect(result).toEqual([]);
         expect(fakeRepo.findPublicList).not.toHaveBeenCalled();
     });
 
-    it('findRelated forwards the enforced visibility exclusions to findByFieldValueAny', async () => {
+    it('findRelated truyền visibilityExclusions tới findByFieldValueAny', async () => {
         const { service, fakeRepo } = makeServiceWithVisibility();
-        (fakeRepo as any).findByFieldValueAny = jest.fn(async () => [{ id: 'e1' }]);
-        // findRelated first loads the CURRENT entry (findById on the repo) — extend the fake:
         (fakeRepo as any).findById = jest.fn(async () => ({ id: 'e0', contentTypeId: 'ct-restricted', data: { budget: 5 } }));
-        await service.findRelated('e0', 'budget', 3, []);
+        await service.findRelated('e0', 'budget', 3);
         expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
             'ct-restricted', 'budget', [5], 'e0', 3,
             [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
         );
     });
 
-    it('findBacklinks forwards the enforced visibility exclusions (resolved against sourceContentTypeId, not the viewed entry)', async () => {
+    it('findBacklinks truyền visibilityExclusions theo sourceContentTypeId', async () => {
         const { service, fakeRepo } = makeServiceWithVisibility();
-        fakeRepo.findByFieldValueAny = jest.fn(async () => []);
-        await service.findBacklinks('some-entry-id', 'ct-restricted', 'budget', 12, []);
+        await service.findBacklinks('some-entry-id', 'ct-restricted', 'budget', 12);
         expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
             'ct-restricted', 'budget', ['some-entry-id'], undefined, 12,
             [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
         );
     });
 
-    it('findMixed forwards the enforced visibility exclusions independently per source', async () => {
+    it('findMixed truyền visibilityExclusions độc lập theo từng source', async () => {
         const { service, fakeRepo } = makeServiceWithVisibility();
-        await service.findMixed([{ contentTypeId: 'ct-restricted', limit: 5 }], 12, []);
+        await service.findMixed([{ contentTypeId: 'ct-restricted', limit: 5 }], 12);
         expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({
             contentTypeId: 'ct-restricted',
             visibilityExclusions: [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
         }));
     });
 
-    it('findPublicEntries does not cap results when ids are given and no explicit limit is passed', async () => {
-        const { service, fakeRepo } = makeServiceWithVisibility();
-        await service.findPublicEntries({ contentTypeId: 'ct-restricted', ids: ['a', 'b', 'c'], filters: [], limit: undefined, viewerRoles: [] });
-        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
-    });
-
-    it('findRelated fails CLOSED (throws) rather than silently skipping visibility rules when the content type cannot be found', async () => {
+    it('findRelated fail CLOSED (throw) khi content type không tìm thấy', async () => {
         const fakeContentTypeService = { findById: jest.fn(async () => null) };
         const fakeRepo = {
             findById: jest.fn(async () => ({ id: 'e0', contentTypeId: 'ct-missing', data: {} })),
@@ -144,6 +125,14 @@ describe('ContentEntryService — Content Visibility Rules enforcement', () => {
             findPublicList: jest.fn(async () => []),
         };
         const service = new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
-        await expect(service.findRelated('e0', 'someField', 3, [])).rejects.toThrow();
+        await expect(service.findRelated('e0', 'someField', 3)).rejects.toThrow();
+    });
+
+    // Phase 2b: mode "manual" (ids) không tự ép limit — giữ lại hành vi này qua đợt refactor bỏ
+    // viewerRoles (test gốc dùng `viewerRoles: []`, chỉ bỏ tham số đó, phần còn lại không đổi).
+    it('findPublicEntries does not cap results when ids are given and no explicit limit is passed', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', ids: ['a', 'b', 'c'], filters: [], limit: undefined });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
     });
 });

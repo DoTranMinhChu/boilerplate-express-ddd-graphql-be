@@ -4,11 +4,8 @@ import { BaseService } from '@/core/application/services/base.service';
 import { BadRequestException, ConflictException, NotFoundException } from '@/core/domain/exceptions/appException';
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
 import { FieldDefinitionType } from '@/modules/contentType/application/dto/fieldDefinition.dto';
-import { ContentVisibilityRuleType } from '@/modules/contentType/application/dto/contentVisibilityRule.dto';
-import { resolveEnforcedVisibilityRules } from '@/modules/contentType/application/services/contentVisibility.util';
 import { EFieldType } from '@/modules/contentType/application/enums/contentType.enum';
 import { slugify } from '@/core/shared/utils/slug.util';
-import { ERole } from '@/core/shared/enums/account.enum';
 import { DeepPartial } from 'typeorm';
 
 export class ContentEntryService extends BaseService<ContentEntryEntity> {
@@ -82,25 +79,20 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         return slugify(String(source));
     }
 
-    /** Rule nào của ContentType này còn phải áp cho viewerRoles hiện tại (mục 4
-     * design) -> map sang FieldCondition cho tầng query builder (Task 5).
-     *
-     * Content Type không tìm thấy (vd bị soft-delete trong khi entry của nó vẫn còn PUBLISHED —
-     * trạng thái bất thường nhưng có thể xảy ra) -> THROW thay vì âm thầm trả về [] (không rule
-     * nào bị áp) — findRelated/findBacklinks/findMixed không tự kiểm tra contentType tồn tại
-     * trước khi gọi hàm này (khác findPublicEntries, đã tự return [] sớm), nên nếu hàm này im
-     * lặng trả về [] thì 3 đường đọc công khai đó sẽ "fail open" (mất toàn bộ Content Visibility
-     * Rules) đúng lúc dữ liệu bất thường nhất. Throw -> GraphQL trả lỗi, không rò dữ liệu -> fail
-     * CLOSED, đồng nhất cho cả 4 phương thức. findPublicEntries không bị ảnh hưởng (đã tự return
-     * [] sớm hơn, trước khi gọi tới đây).
+    /** Map thẳng contentVisibilityRules của ContentType sang FieldCondition cho tầng query
+     * builder — rule đã khai báo LUÔN được áp dụng (không còn khái niệm "trừ khi role X",
+     * xem design doc 2026-08-08-visibility-rules-simplify-and-usage-lookup). Content Type
+     * không tìm thấy (vd bị soft-delete trong khi entry vẫn còn PUBLISHED) -> THROW thay vì
+     * âm thầm trả về [] — findRelated/findBacklinks/findMixed không tự kiểm tra contentType
+     * tồn tại trước khi gọi hàm này (khác findPublicEntries, đã tự return [] sớm), fail CLOSED
+     * đồng nhất cho cả 4 phương thức.
      */
-    private async resolveVisibilityExclusions(contentTypeId: string, viewerRoles: ERole[]): Promise<FieldCondition[]> {
+    private async resolveVisibilityExclusions(contentTypeId: string): Promise<FieldCondition[]> {
         const contentType = await this.contentTypeService.findById(contentTypeId);
         if (!contentType) {
             throw new NotFoundException(`Không tìm thấy content type (id: ${contentTypeId}) khi áp dụng luật hiển thị.`);
         }
-        const enforced = resolveEnforcedVisibilityRules(contentType.contentVisibilityRules || [], viewerRoles);
-        return enforced.map((r: ContentVisibilityRuleType) => ({ field: r.field, operator: r.operator, value: r.value }));
+        return (contentType.contentVisibilityRules || []).map((r) => ({ field: r.field, operator: r.operator, value: r.value }));
     }
 
     async createEntry(input: DeepPartial<ContentEntryEntity> & { slug?: string }): Promise<ContentEntryEntity> {
@@ -146,15 +138,15 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * "Nội dung liên quan" cho khối RELATED_ENTRIES trên trang Chi tiết — cùng
      * contentType, khớp `matchField` (vd cùng Loại tin tức) với entry đang xem, entry
      * hiện tại luôn bị loại. Không đủ số lượng khớp → độn thêm bài mới nhất khác (tránh
-     * khối "liên quan" trống trơn hoặc quá ít khi dữ liệu còn thưa). `viewerRoles` ->
-     * Content Visibility Rules của CHÍNH contentType này áp cho cả 2 phần (match +
-     * filler) — mục 4.3 design: mọi đường đọc công khai đều qua lớp này.
+     * khối "liên quan" trống trơn hoặc quá ít khi dữ liệu còn thưa). Content Visibility
+     * Rules của CHÍNH contentType này LUÔN áp cho cả 2 phần (match + filler) — mọi
+     * đường đọc công khai đều qua lớp này.
      */
-    async findRelated(entryId: string, matchField: string | undefined, limit = 3, viewerRoles: ERole[] = []): Promise<ContentEntryEntity[]> {
+    async findRelated(entryId: string, matchField: string | undefined, limit = 3): Promise<ContentEntryEntity[]> {
         const current = await this.contentEntryRepository.findById(entryId);
         if (!current) return [];
 
-        const visibilityExclusions = await this.resolveVisibilityExclusions(current.contentTypeId, viewerRoles);
+        const visibilityExclusions = await this.resolveVisibilityExclusions(current.contentTypeId);
 
         const rawValue = matchField ? current.data?.[matchField] : undefined;
         const matchValues = Array.isArray(rawValue) ? rawValue : rawValue !== undefined && rawValue !== null && rawValue !== '' ? [rawValue] : [];
@@ -180,22 +172,23 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * findRelated(): thay vì "cùng loại, cùng field", đây là "entry nào (ở 1 content
      * type KHÁC) đang có field RELATION trỏ tới entry đang xem". Visibility Rules áp
      * theo ContentType NGUỒN (sourceContentTypeId) — nơi entries thực sự được đọc ra,
-     * không phải ContentType của entry đang xem.
+     * không phải ContentType của entry đang xem. Rule đã khai báo LUÔN áp dụng.
      */
-    async findBacklinks(entryId: string, sourceContentTypeId: string, matchField: string, limit = 12, viewerRoles: ERole[] = []): Promise<ContentEntryEntity[]> {
-        const visibilityExclusions = await this.resolveVisibilityExclusions(sourceContentTypeId, viewerRoles);
+    async findBacklinks(entryId: string, sourceContentTypeId: string, matchField: string, limit = 12): Promise<ContentEntryEntity[]> {
+        const visibilityExclusions = await this.resolveVisibilityExclusions(sourceContentTypeId);
         return this.contentEntryRepository.findByFieldValueAny(sourceContentTypeId, matchField, [entryId], undefined, limit, visibilityExclusions);
     }
 
     /**
      * "Nội dung tổng hợp" cho khối MIXED_FEED — trộn entries từ NHIỀU contentType
      * khác nhau. Mỗi source có Visibility Rules RIÊNG (ContentType khác nhau) — resolve
-     * exclusions độc lập cho từng source, không dùng chung 1 bộ.
+     * exclusions độc lập cho từng source, không dùng chung 1 bộ. Rule đã khai báo LUÔN
+     * áp dụng.
      */
-    async findMixed(sources: { contentTypeId: string; limit?: number }[], overallLimit = 12, viewerRoles: ERole[] = []): Promise<ContentEntryEntity[]> {
+    async findMixed(sources: { contentTypeId: string; limit?: number }[], overallLimit = 12): Promise<ContentEntryEntity[]> {
         const perSource = await Promise.all(
             sources.map(async (s) => {
-                const visibilityExclusions = await this.resolveVisibilityExclusions(s.contentTypeId, viewerRoles);
+                const visibilityExclusions = await this.resolveVisibilityExclusions(s.contentTypeId);
                 return this.contentEntryRepository.findPublicList({
                     contentTypeId: s.contentTypeId,
                     filters: [],
@@ -213,7 +206,8 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * Nguồn dữ liệu công khai chung cho GenericDataSourceConfig (mục 3 design) — CŨNG
      * là điểm mà `getPublicContentEntries`'s mode "manual" (ids) hiện có route qua, để
      * Content Visibility Rules áp dụng NGAY CẢ khi admin ghim tay 1 entry cụ thể lên
-     * trang (mục 4 design: không có đường nào bỏ qua lớp này).
+     * trang (mục 4 design: không có đường nào bỏ qua lớp này). Rule đã khai báo LUÔN
+     * áp dụng.
      */
     async findPublicEntries(params: {
         contentTypeId: string;
@@ -221,11 +215,10 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         filters: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
         limit?: number;
-        viewerRoles: ERole[];
     }): Promise<ContentEntryEntity[]> {
         const contentType = await this.contentTypeService.findById(params.contentTypeId);
         if (!contentType) return [];
-        const visibilityExclusions = await this.resolveVisibilityExclusions(params.contentTypeId, params.viewerRoles);
+        const visibilityExclusions = await this.resolveVisibilityExclusions(params.contentTypeId);
 
         const entries = await this.contentEntryRepository.findPublicList({
             contentTypeId: params.contentTypeId,

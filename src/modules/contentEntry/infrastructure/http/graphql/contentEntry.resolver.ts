@@ -1,10 +1,9 @@
 import { BaseGraphQLResolver } from '@/core/infrastructure/http/baseGraphql.resolver';
-import { GQLAuthorized, Args, GQLCurrentUser, Resolver, Mutation, Query, GQLQuery, GQLPublic } from '@/core/shared/decorators/graphQL.decorators';
+import { GQLAuthorized, Args, Resolver, Mutation, Query, GQLQuery, GQLPublic } from '@/core/shared/decorators/graphQL.decorators';
 import { GQLPermission } from '@/core/shared/decorators/graphQLPermission.decorator';
 import { GQLPaginationArgs, PaginatedResponse } from '@/core/shared/dto/pagination.dto';
 import { ERole } from '@/core/shared/enums/account.enum';
 import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
-import { IAccount } from '@/core/shared/types/common.types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/contentEntry.entity';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
@@ -56,7 +55,6 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         @Args('sortField', { type: String }) sortField: string | undefined,
         @Args('sortDirection', { type: String }) sortDirection: 'ASC' | 'DESC' | undefined,
         @Args('filters', { type: [ContentEntryFieldFilterInput] }) filters: ContentEntryFieldFilterInput[] | undefined,
-        @GQLCurrentUser() account: IAccount,
     ) {
         return this.contentEntryService.findPublicEntries({
             contentTypeId,
@@ -68,30 +66,29 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
             // trước Phase 2b không có cap nào ở đây, hợp nhất qua findPublicEntries vô tình thêm
             // cap 12 mặc định cho CẢ 2 mode). Mode "dynamic" (không có ids) vẫn mặc định 12 như cũ.
             limit: limit ?? (ids?.length ? undefined : 12),
-            viewerRoles: account?.roles ?? [],
         });
     }
 
     /** Khối "Nội dung liên quan" trên trang Chi tiết — công khai, không cần login. */
     @Query('getRelatedContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
-    async getRelatedContentEntries(@Args('input', { type: RelatedEntriesQueryInput }) input: RelatedEntriesQueryInput, @GQLCurrentUser() account: IAccount) {
-        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3, account?.roles ?? []);
+    async getRelatedContentEntries(@Args('input', { type: RelatedEntriesQueryInput }) input: RelatedEntriesQueryInput) {
+        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3);
     }
 
     /** Khối "Nội dung tổng hợp" — trộn nhiều Object Type vào 1 feed, công khai. */
     @Query('getMixedContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
-    async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput, @GQLCurrentUser() account: IAccount) {
-        return this.contentEntryService.findMixed(input.sources, input.limit || 12, account?.roles ?? []);
+    async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput) {
+        return this.contentEntryService.findMixed(input.sources, input.limit || 12);
     }
 
     /** Khối "Nội dung tham chiếu" (backlink) — vd trang Chi tiết danh mục hiện các bài
      * viết thuộc danh mục đó. Công khai, không cần login. */
     @Query('getBacklinkContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
-    async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput, @GQLCurrentUser() account: IAccount) {
-        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12, account?.roles ?? []);
+    async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput) {
+        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12);
     }
 
     @Query('getAllContentEntry', { returnType: ContentEntryPagination })
