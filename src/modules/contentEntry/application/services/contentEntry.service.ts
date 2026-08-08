@@ -133,7 +133,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         const matchValues = Array.isArray(rawValue) ? rawValue : rawValue !== undefined && rawValue !== null && rawValue !== '' ? [rawValue] : [];
 
         const matched = matchValues.length
-            ? await this.contentEntryRepository.findByFieldValueAny(current.contentTypeId, matchField!, matchValues, current.id, limit)
+            ? await this.contentEntryRepository.findByFieldValueAny(current.contentTypeId, matchField!, matchValues, current.id, limit, [])
             : [];
 
         if (matched.length >= limit) return matched;
@@ -154,7 +154,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * khác findRelated, ở đây rỗng là kết quả ĐÚNG (chưa có gì tham chiếu tới).
      */
     async findBacklinks(entryId: string, sourceContentTypeId: string, matchField: string, limit = 12): Promise<ContentEntryEntity[]> {
-        return this.contentEntryRepository.findByFieldValueAny(sourceContentTypeId, matchField, [entryId], undefined, limit);
+        return this.contentEntryRepository.findByFieldValueAny(sourceContentTypeId, matchField, [entryId], undefined, limit, []);
     }
 
     /**
