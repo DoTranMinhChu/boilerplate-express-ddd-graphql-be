@@ -1,17 +1,18 @@
 import { BaseGraphQLResolver } from '@/core/infrastructure/http/baseGraphql.resolver';
-import { GQLAuthorized, Args, Resolver, Mutation, Query, GQLQuery, GQLPublic } from '@/core/shared/decorators/graphQL.decorators';
+import { GQLAuthorized, Args, GQLCurrentUser, Resolver, Mutation, Query, GQLQuery, GQLPublic } from '@/core/shared/decorators/graphQL.decorators';
 import { GQLPermission } from '@/core/shared/decorators/graphQLPermission.decorator';
 import { GQLPaginationArgs, PaginatedResponse } from '@/core/shared/dto/pagination.dto';
 import { ERole } from '@/core/shared/enums/account.enum';
 import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
+import { IAccount } from '@/core/shared/types/common.types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/contentEntry.entity';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
-import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryInput, MixedFeedQueryInput, BacklinkEntriesQueryInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
+import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryInput, MixedFeedQueryInput, BacklinkEntriesQueryInput, ContentEntryFieldFilterInput } from '@/modules/contentEntry/application/dto/contentEntry.dto';
 import { PageService } from '@/modules/page/application/services/page.service';
 import { RedirectService } from '@/modules/page/application/services/redirect.service';
-import { EPageType, EPageStatus } from '@/modules/page/application/enums/page.enum';
-import { FindOneOptions, In } from 'typeorm';
+import { EPageType } from '@/modules/page/application/enums/page.enum';
+import { FindOneOptions } from 'typeorm';
 
 const ContentEntryPagination = PaginatedResponse(ContentEntryEntity);
 const STAFF_ROLES = Object.values(ERole);
@@ -39,10 +40,11 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     }
 
     /**
-     * Public query duy nhất mà section "dynamic data source" phía FE public
-     * gọi (không cần login) — phục vụ cả 2 mode dataSource của mục 9 spec:
-     *  - manual: truyền `ids`, bỏ qua limit/sort, trả đúng thứ tự ids.
-     *  - dynamic: truyền `contentTypeId` (+ limit/sort), luôn ép status=PUBLISHED.
+     * Public query duy nhất mà section "dynamic data source" phía FE public gọi
+     * (không cần login) — phục vụ cả 2 mode dataSource cũ (manual/dynamic) VÀ
+     * GenericDataSourceConfig mới (mục 3 design, qua `filters`). Content Visibility
+     * Rules (mục 4 design) LUÔN áp — kể cả mode "manual" (`ids`), không có đường nào
+     * bỏ qua (xem ContentEntryService.findPublicEntries).
      */
     @Query('getPublicContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
@@ -52,41 +54,39 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         @Args('limit', { type: Number }) limit: number | undefined,
         @Args('sortField', { type: String }) sortField: string | undefined,
         @Args('sortDirection', { type: String }) sortDirection: 'ASC' | 'DESC' | undefined,
+        @Args('filters', { type: [ContentEntryFieldFilterInput] }) filters: ContentEntryFieldFilterInput[] | undefined,
+        @GQLCurrentUser() account: IAccount,
     ) {
-        if (ids?.length) {
-            const entries = await this.contentEntryService.findByCondition({
-                where: { id: In(ids), contentTypeId, status: EPageStatus.PUBLISHED },
-            });
-            const byId = new Map(entries.map((e) => [e.id, e]));
-            return ids.map((id) => byId.get(id)).filter((e): e is ContentEntryEntity => !!e);
-        }
-        return this.contentEntryService.findByCondition({
-            where: { contentTypeId, status: EPageStatus.PUBLISHED },
-            order: { [sortField || 'createdAt']: sortDirection || 'DESC' } as any,
-            take: limit || 12,
+        return this.contentEntryService.findPublicEntries({
+            contentTypeId,
+            ids: ids?.length ? ids : undefined,
+            filters: (filters || []).map((f) => ({ field: f.field, operator: f.operator || '$eq', value: f.value })),
+            sort: sortField ? { field: sortField, direction: sortDirection || 'DESC' } : undefined,
+            limit: limit || 12,
+            viewerRoles: account?.roles ?? [],
         });
     }
 
     /** Khối "Nội dung liên quan" trên trang Chi tiết — công khai, không cần login. */
     @Query('getRelatedContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
-    async getRelatedContentEntries(@Args('input', { type: RelatedEntriesQueryInput }) input: RelatedEntriesQueryInput) {
-        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3);
+    async getRelatedContentEntries(@Args('input', { type: RelatedEntriesQueryInput }) input: RelatedEntriesQueryInput, @GQLCurrentUser() account: IAccount) {
+        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3, account?.roles ?? []);
     }
 
     /** Khối "Nội dung tổng hợp" — trộn nhiều Object Type vào 1 feed, công khai. */
     @Query('getMixedContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
-    async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput) {
-        return this.contentEntryService.findMixed(input.sources, input.limit || 12);
+    async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput, @GQLCurrentUser() account: IAccount) {
+        return this.contentEntryService.findMixed(input.sources, input.limit || 12, account?.roles ?? []);
     }
 
     /** Khối "Nội dung tham chiếu" (backlink) — vd trang Chi tiết danh mục hiện các bài
      * viết thuộc danh mục đó. Công khai, không cần login. */
     @Query('getBacklinkContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
-    async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput) {
-        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12);
+    async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput, @GQLCurrentUser() account: IAccount) {
+        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12, account?.roles ?? []);
     }
 
     @Query('getAllContentEntry', { returnType: ContentEntryPagination })

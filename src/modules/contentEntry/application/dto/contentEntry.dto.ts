@@ -22,6 +22,16 @@ export class UpdateContentEntryInput {
     @Field({ type: GraphQLMixed, nullable: true }) data?: Record<string, any>;
 }
 
+// GenericDataSourceConfig filter (mục 3 design) — dùng chung bộ toán tử EFilterOperator
+// với Content Visibility Rules (mục 4 design), xem FieldCondition ở contentEntry.repository.ts.
+@InputType('ContentEntryFieldFilterInput')
+export class ContentEntryFieldFilterInput {
+    @Field({ type: String }) field!: string;
+    /** Mặc định "$eq" khi để trống — cùng bộ ký hiệu EFilterOperator. */
+    @Field({ type: String, nullable: true }) operator?: string;
+    @Field({ type: GraphQLMixed }) value!: any;
+}
+
 // Khối RELATED_ENTRIES (trang Chi tiết) — mục B "nội dung liên quan" trong plan CMS.
 @InputType('RelatedEntriesQueryInput')
 export class RelatedEntriesQueryInput {
