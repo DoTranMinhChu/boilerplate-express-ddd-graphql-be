@@ -91,21 +91,6 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         }
     }
 
-    private async assertSlugAvailable(contentTypeId: string, slug: string, excludeId?: string): Promise<void> {
-        const existing = await this.contentEntryRepository.findOneByCondition({ where: { contentTypeId, slug } });
-        if (existing && existing.id !== excludeId) {
-            throw new ConflictException(`Slug "${slug}" đã tồn tại trong content type này.`);
-        }
-    }
-
-    private resolveSlug(fields: FieldDefinitionType[], data: Record<string, any>, providedSlug?: string): string {
-        if (providedSlug) return slugify(providedSlug);
-        const slugSourceField = fields.find((f) => f.isSlugSource);
-        const source = slugSourceField ? data?.[slugSourceField.key] : undefined;
-        if (!source) throw new BadRequestException('Thiếu slug và không có field nào đánh dấu isSlugSource để tự sinh.');
-        return slugify(String(source));
-    }
-
     /** Kiểm tra unique + tự sinh giá trị (autoGenerateFrom) cho MỌI field TEXT có 1 trong 2 thuộc tính này —
      * generic theo field key bất kỳ (mục α design 2026-08-09-block-driven-content-binding-design.md), KHÔNG
      * riêng cho slug. Mutate `data` TẠI CHỖ khi tự sinh (để validateData() chạy sau đó thấy giá trị đã điền).
@@ -175,20 +160,21 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         return (contentType.contentVisibilityRules || []).map((r) => ({ field: r.field, operator: r.operator, value: r.value }));
     }
 
-    async createEntry(input: DeepPartial<ContentEntryEntity> & { slug?: string }): Promise<ContentEntryEntity> {
+    async createEntry(input: DeepPartial<ContentEntryEntity>): Promise<ContentEntryEntity> {
         const contentType = await this.contentTypeService.findById(input.contentTypeId as string);
         if (!contentType) throw new NotFoundException('Không tìm thấy content type.');
 
         const data = (input.data as Record<string, any>) || {};
         await this.resolveUniqueFields(contentType.fields, data, input.contentTypeId as string);
         this.validateData(contentType.fields, data);
-        const slug = this.resolveSlug(contentType.fields, data, input.slug);
-        await this.assertSlugAvailable(input.contentTypeId as string, slug);
 
-        return this.create({ ...input, data, slug });
+        return this.create({ ...input, data });
     }
 
-    async updateEntry(id: string, input: DeepPartial<ContentEntryEntity> & { slug?: string }): Promise<{ entry: ContentEntryEntity; oldSlug: string; contentTypeId: string }> {
+    /** `previousData` trong return type = `current.data` TRƯỚC khi update — resolver dùng để phát hiện field
+     * nào đổi giá trị (redirect-khi-đổi-field, mục γ) mà KHÔNG cần tự query lại `findById` riêng (đã có sẵn
+     * `current` trong hàm này). */
+    async updateEntry(id: string, input: DeepPartial<ContentEntryEntity>): Promise<{ entry: ContentEntryEntity; contentTypeId: string; previousData: Record<string, any> }> {
         const current = await this.contentEntryRepository.findById(id);
         if (!current) throw new NotFoundException('Không tìm thấy content entry.');
 
@@ -199,14 +185,8 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         await this.resolveUniqueFields(contentType.fields, mergedData, current.contentTypeId, id, current.data);
         this.validateData(contentType.fields, mergedData);
 
-        let slug = current.slug;
-        if (input.slug && input.slug !== current.slug) {
-            slug = slugify(input.slug);
-            await this.assertSlugAvailable(current.contentTypeId, slug, id);
-        }
-
-        const entry = await this.updateById(id, { ...input, data: mergedData, slug });
-        return { entry, oldSlug: current.slug, contentTypeId: current.contentTypeId };
+        const entry = await this.updateById(id, { ...input, data: mergedData });
+        return { entry, contentTypeId: current.contentTypeId, previousData: current.data };
     }
 
     /** Tăng viewCount atomic (UPDATE ... SET "viewCount" = "viewCount" + 1) — không

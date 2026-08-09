@@ -20,7 +20,7 @@ const FAQ_CONTENT_TYPE = {
 function makeService() {
     const fakeContentTypeService = { findById: jest.fn(async () => FAQ_CONTENT_TYPE) };
     const fakeRepo = {
-        findOneByCondition: jest.fn(async () => null), // slug availability check passes
+        findOneByCondition: jest.fn(async () => null),
         create: jest.fn(async (data: any) => ({ id: 'entry-1', ...data })),
     };
     return new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
@@ -31,7 +31,6 @@ describe('ContentEntryService.validateData — REPEATER', () => {
         const service = makeService();
         const result = await service.createEntry({
             contentTypeId: 'ct-1',
-            slug: 'test-slug',
             data: { faq: [{ question: 'Q1', answer: 'A1' }, { question: 'Q2', answer: 'A2' }] },
         } as any);
         expect(result).toBeTruthy();
@@ -41,7 +40,6 @@ describe('ContentEntryService.validateData — REPEATER', () => {
         const service = makeService();
         await expect(service.createEntry({
             contentTypeId: 'ct-1',
-            slug: 'test-slug',
             data: { faq: 'not-an-array' },
         } as any)).rejects.toThrow(BadRequestException);
     });
@@ -50,7 +48,6 @@ describe('ContentEntryService.validateData — REPEATER', () => {
         const service = makeService();
         await expect(service.createEntry({
             contentTypeId: 'ct-1',
-            slug: 'test-slug',
             data: { faq: [{ question: 'Q1', answer: 'A1' }, { answer: 'Missing question' }] },
         } as any)).rejects.toThrow(/mục #2/);
     });
@@ -146,34 +143,34 @@ describe('ContentEntryService.validateData — validate rule + TAXONOMY', () => 
 
     it('từ chối chuỗi ngắn hơn minLength', async () => {
         const service = makeValidateService([{ key: 'title', label: 'T', type: 'TEXT', minLength: 5 }]);
-        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { title: 'ab' } } as any)).rejects.toThrow(/ít nhất 5/);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', data: { title: 'ab' } } as any)).rejects.toThrow(/ít nhất 5/);
     });
 
     it('từ chối chuỗi không khớp pattern', async () => {
         const service = makeValidateService([{ key: 'phone', label: 'P', type: 'TEXT', pattern: '^[0-9]{10}$' }]);
-        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { phone: 'abc' } } as any)).rejects.toThrow(/định dạng/);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', data: { phone: 'abc' } } as any)).rejects.toThrow(/định dạng/);
     });
 
     it('chấp nhận chuỗi khớp pattern', async () => {
         const service = makeValidateService([{ key: 'phone', label: 'P', type: 'TEXT', pattern: '^[0-9]{10}$' }]);
-        const result = await service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { phone: '0912345678' } } as any);
+        const result = await service.createEntry({ contentTypeId: 'ct-1', data: { phone: '0912345678' } } as any);
         expect(result).toBeTruthy();
     });
 
     it('không crash khi admin cấu hình pattern sai cú pháp regex', async () => {
         const service = makeValidateService([{ key: 'x', label: 'X', type: 'TEXT', pattern: '[' }]);
-        const result = await service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { x: 'bất kỳ' } } as any);
+        const result = await service.createEntry({ contentTypeId: 'ct-1', data: { x: 'bất kỳ' } } as any);
         expect(result).toBeTruthy();
     });
 
     it('từ chối số ngoài khoảng min/max', async () => {
         const service = makeValidateService([{ key: 'age', label: 'A', type: 'NUMBER', min: 18, max: 65 }]);
-        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { age: 10 } } as any)).rejects.toThrow(/≥ 18/);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', data: { age: 10 } } as any)).rejects.toThrow(/≥ 18/);
     });
 
     it('TAXONOMY nhiều giá trị phải là mảng', async () => {
         const service = makeValidateService([{ key: 'cats', label: 'C', type: 'TAXONOMY', taxonomyMultiple: true }]);
-        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { cats: 'not-array' } } as any)).rejects.toThrow(/danh sách/);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', data: { cats: 'not-array' } } as any)).rejects.toThrow(/danh sách/);
     });
 });
 
@@ -189,10 +186,10 @@ const UNIQUE_FIELD_CONTENT_TYPE = {
 function makeUniqueFieldService(existsByFieldValueImpl: (contentTypeId: string, fieldKey: string, value: string, excludeId?: string) => Promise<boolean>) {
     const fakeContentTypeService = { findById: jest.fn(async () => UNIQUE_FIELD_CONTENT_TYPE) };
     const fakeRepo = {
-        findOneByCondition: jest.fn(async () => null), // slug availability (cơ chế CŨ, không đụng) luôn pass
+        findOneByCondition: jest.fn(async () => null),
         existsByFieldValue: jest.fn(existsByFieldValueImpl),
         create: jest.fn(async (data: any) => ({ id: 'entry-1', ...data })),
-        findById: jest.fn(async () => ({ id: 'entry-1', contentTypeId: 'ct-unique', slug: 'old-slug', data: { tieuDe: 'Cũ', duongDan: 'duong-dan-cu', maSanPham: 'SP-001' } })),
+        findById: jest.fn(async () => ({ id: 'entry-1', contentTypeId: 'ct-unique', data: { tieuDe: 'Cũ', duongDan: 'duong-dan-cu', maSanPham: 'SP-001' } })),
         updateById: jest.fn(async (id: string, data: any) => ({ id, ...data })),
         // BaseService.updateById() gọi updateByCondition() -> this.repository.updateOneByCondition() (không
         // phải updateById ở tầng repository) — mock method THẬT SỰ được gọi trên đường đi qua BaseService,
@@ -211,7 +208,6 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
         const { service, fakeRepo } = makeUniqueFieldService(async () => false); // không trùng
         const result = await service.createEntry({
             contentTypeId: 'ct-unique',
-            slug: 'test-slug',
             data: { tieuDe: '5 Xu Hướng Thiết Kế', maSanPham: 'SP-002' },
         } as any);
         expect((result as any).data.duongDan).toBe('5-xu-huong-thiet-ke');
@@ -222,7 +218,6 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
         const { service } = makeUniqueFieldService(async (_ct, _key, value) => value === '5-xu-huong-thiet-ke'); // đúng candidate đầu tiên bị trùng, "-2" thì không
         const result = await service.createEntry({
             contentTypeId: 'ct-unique',
-            slug: 'test-slug',
             data: { tieuDe: '5 Xu Hướng Thiết Kế', maSanPham: 'SP-003' },
         } as any);
         expect((result as any).data.duongDan).toBe('5-xu-huong-thiet-ke-2');
@@ -232,7 +227,6 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
         const { service } = makeUniqueFieldService(async () => true); // luôn báo trùng
         await expect(service.createEntry({
             contentTypeId: 'ct-unique',
-            slug: 'test-slug',
             data: { tieuDe: 'Bài viết', duongDan: 'da-nhap-tay', maSanPham: 'SP-004' },
         } as any)).rejects.toThrow(/đã tồn tại/);
     });
@@ -241,7 +235,6 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
         const { service, fakeRepo } = makeUniqueFieldService(async () => false);
         await service.createEntry({
             contentTypeId: 'ct-unique',
-            slug: 'test-slug',
             data: { tieuDe: 'Bài viết bất kỳ', duongDan: 'duong-dan-tay', maSanPham: 'SP-005' },
         } as any);
         expect(fakeRepo.existsByFieldValue).not.toHaveBeenCalledWith('ct-unique', 'tieuDe', expect.anything(), expect.anything());

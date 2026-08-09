@@ -10,7 +10,6 @@ export class FieldDefinitionType {
     @Field({ type: [String], nullable: true }) options?: string[];
     @Field({ type: String, nullable: true }) relationTarget?: string;
     @Field({ type: Boolean, nullable: true }) relationMultiple?: boolean;
-    @Field({ type: Boolean, nullable: true }) isSlugSource?: boolean;
     @Field({ type: Boolean, nullable: true }) showInListing?: boolean;
 
     /** Sample value shown for this field when the Page Builder previews a
@@ -26,8 +25,8 @@ export class FieldDefinitionType {
     @Field({ type: Boolean, nullable: true }) taxonomyMultiple?: boolean;
 
     /** Chỉ dùng khi type === RELATION — key của 1 field TRÊN Content Type đích (relationTarget) dùng làm
-     * nhãn hiển thị trong picker/trang công khai, thay vì luôn dùng slug. Để trống -> fallback field đánh
-     * dấu isSlugSource, rồi field TEXT đầu tiên, rồi slug (xem thiết kế mục C). */
+     * nhãn hiển thị trong picker/trang công khai. Để trống -> fallback field TEXT đầu tiên (xem thiết kế
+     * mục C; `isSlugSource` đã bị xoá ở mục γ, thay bằng `unique`/`autoGenerateFrom` bên dưới). */
     @Field({ type: String, nullable: true }) relationDisplayField?: string;
 
     /** Field TEXT được đánh dấu unique -> ContentEntryService kiểm tra không cho phép 2 entry CÙNG Content

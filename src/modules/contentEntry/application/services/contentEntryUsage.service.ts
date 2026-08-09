@@ -34,16 +34,13 @@ export interface UsageLocation {
 const SINGLE_SOURCE_TYPES = ['content-grid', 'featured-entry', 'project-showcase', 'logo-grid'];
 
 /**
- * Đọc giá trị `fieldKey` của 1 entry để build URL từ `findDetailBinding` — KHÔNG đọc thẳng
- * `entry.data[fieldKey]` như công thức "lý tưởng" của thiết kế γ 3.3 (data model sau khi xoá
- * hẳn cột `ContentEntryEntity.slug`, mục γ 3.3, CHƯA làm ở Task này). Ở trạng thái hiện tại,
- * cột `slug` vẫn là cột THẬT trên entity (không nằm trong JSONB `data`) — xác nhận bằng dữ
- * liệu QA thật ("QA beta detail mode" dùng `genericFilters: [{ field: 'slug', ... }]`, content
- * type "Bài viết" không có field JSONB nào tên `slug` trong danh sách field tự khai báo) — nếu
- * đọc thẳng `entry.data['slug']` sẽ luôn ra `undefined`, sinh URL ".../undefined". Repository
- * filter builder (`applyFieldCondition`) đã tự xử lý đúng phân biệt này (cột thật vs JSONB) qua
- * `hasColumn` — hàm này áp dụng ĐÚNG nguyên tắc y hệt cho chiều đọc ngược (build URL), không tự
- * chế cách khác, chỉ nhất quán với cách BE đã xử lý field động ở nơi khác.
+ * Đọc giá trị `fieldKey` của 1 entry để build URL từ `findDetailBinding` — dùng `hasColumn` để
+ * phân biệt cột thật (vd `contentTypeId`, `status`...) với field JSONB trong `data`, cùng
+ * nguyên tắc `applyFieldCondition` đã dùng ở filter builder. Từ mục γ 3.3 (Task 5), cột
+ * `ContentEntryEntity.slug` đã bị xoá hẳn — MỌI field slug-like (kể cả field tên "slug" nếu
+ * content type nào đó vẫn dùng khái niệm này) giờ chỉ còn nằm trong `data` JSONB, nên
+ * `hasColumn('slug')` luôn trả `false` và hàm này tự động đọc đúng `entry.data['slug']` mà
+ * không cần đổi gì thêm ở đây.
  */
 function readEntryFieldValue(entry: { data: Record<string, any>; [key: string]: any }, fieldKey: string, hasColumn: (key: string) => boolean): unknown {
     return hasColumn(fieldKey) ? entry[fieldKey] : entry.data?.[fieldKey];

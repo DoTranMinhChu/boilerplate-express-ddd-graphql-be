@@ -1,5 +1,5 @@
 import { BaseEntity } from '@/core/domain/entities/base.entity';
-import { Entity, Column, Index, Unique } from 'typeorm';
+import { Entity, Column, Index } from 'typeorm';
 import { ObjectType, Field } from '@/core/shared/decorators/graphQL.decorators';
 import { SeoType } from '@/core/shared/dto/seo.dto';
 import { GraphQLMixed } from '@/core/shared/graphql/scalars';
@@ -9,18 +9,16 @@ import { EPageStatus } from '@/modules/page/application/enums/page.enum';
 // { [fieldKey]: value } — validate theo ContentType.fields ở ContentEntryService,
 // không phải ở DB. Không FK cứng tới ContentType/relation field (type động) —
 // integrity check nằm ở tầng service (xem usage-tracker trong roadmap phase sau).
+// KHÔNG còn cột `slug` cứng (mục γ) — mọi field slug-like giờ là 1 key bình thường
+// trong `data` (JSONB), quản lý unique/tự sinh qua FieldDefinition.unique/autoGenerateFrom
+// (mục α) thay vì cột riêng + `isSlugSource`.
 @ObjectType('ContentEntry')
 @Entity('content_entry')
-@Unique(['contentTypeId', 'slug'])
 export class ContentEntryEntity extends BaseEntity {
     @Field({ type: String })
     @Index()
     @Column()
     contentTypeId!: string;
-
-    @Field({ type: String })
-    @Column()
-    slug!: string;
 
     @Field({ type: EPageStatus })
     @Index()
