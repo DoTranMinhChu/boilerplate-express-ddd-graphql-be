@@ -4,6 +4,7 @@ import { PageRepository } from '@/modules/page/infrastructure/persistence/page.r
 import { SectionRepository } from '@/modules/section/infrastructure/persistence/section.repository';
 import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.enum';
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
+import { PageService } from '@/modules/page/application/services/page.service';
 
 export interface UsageLocation {
     pageId: string;
@@ -32,12 +33,29 @@ export interface UsageLocation {
  */
 const SINGLE_SOURCE_TYPES = ['content-grid', 'featured-entry', 'project-showcase', 'logo-grid'];
 
+/**
+ * Đọc giá trị `fieldKey` của 1 entry để build URL từ `findDetailBinding` — KHÔNG đọc thẳng
+ * `entry.data[fieldKey]` như công thức "lý tưởng" của thiết kế γ 3.3 (data model sau khi xoá
+ * hẳn cột `ContentEntryEntity.slug`, mục γ 3.3, CHƯA làm ở Task này). Ở trạng thái hiện tại,
+ * cột `slug` vẫn là cột THẬT trên entity (không nằm trong JSONB `data`) — xác nhận bằng dữ
+ * liệu QA thật ("QA beta detail mode" dùng `genericFilters: [{ field: 'slug', ... }]`, content
+ * type "Bài viết" không có field JSONB nào tên `slug` trong danh sách field tự khai báo) — nếu
+ * đọc thẳng `entry.data['slug']` sẽ luôn ra `undefined`, sinh URL ".../undefined". Repository
+ * filter builder (`applyFieldCondition`) đã tự xử lý đúng phân biệt này (cột thật vs JSONB) qua
+ * `hasColumn` — hàm này áp dụng ĐÚNG nguyên tắc y hệt cho chiều đọc ngược (build URL), không tự
+ * chế cách khác, chỉ nhất quán với cách BE đã xử lý field động ở nơi khác.
+ */
+function readEntryFieldValue(entry: { data: Record<string, any>; [key: string]: any }, fieldKey: string, hasColumn: (key: string) => boolean): unknown {
+    return hasColumn(fieldKey) ? entry[fieldKey] : entry.data?.[fieldKey];
+}
+
 export class ContentEntryUsageService {
     constructor(
         private readonly contentEntryRepository = new ContentEntryRepository(),
         private readonly pageRepository = new PageRepository(),
         private readonly sectionRepository = new SectionRepository(),
         private readonly contentTypeService = new ContentTypeService(),
+        private readonly pageService = new PageService(),
     ) {}
 
     async findUsageLocations(entryId: string): Promise<UsageLocation[]> {
@@ -95,6 +113,31 @@ export class ContentEntryUsageService {
             const page = pageById.get(section.pageId);
             if (!page) continue;
             const ds = (section.dataSource || {}) as Record<string, any>;
+
+            // Block CONTENT_DETAIL tự cấu hình (mục γ 3.2) — cơ chế MỚI thay thế dần
+            // page-level COLLECTION_DETAIL ở nhánh (1) phía trên. Nhận diện: section
+            // kiểu 'content-detail', dataSource.mode === 'detail', và contentTypeId
+            // khớp đúng content type của entry đang tra cứu. `url` build lại qua
+            // PageService.findDetailBinding (Task 2) — CÙNG công thức chuẩn xuyên suốt
+            // γ (binding.path.replace(':'+paramName, entry.data[fieldKey])), không tự
+            // chế cách khác. Nếu findDetailBinding không suy ngược được (null — vd block
+            // có nhiều hơn 1 filter, hoặc filter không phải pathParam đơn), bỏ qua url,
+            // giữ nguyên matchKind — giống hệt hành vi hiện tại khi không suy được URL.
+            if (section.type === 'content-detail' && ds.mode === 'detail' && ds.query?.contentTypeId === entry.contentTypeId) {
+                const binding = await this.pageService.findDetailBinding(entry.contentTypeId);
+                results.push({
+                    pageId: page.id,
+                    pageLabel: page.internalName,
+                    pagePath: page.path,
+                    sectionId: section.id,
+                    sectionType: section.type,
+                    matchKind: isPubliclyVisible ? 'detail' : 'detail-not-visible',
+                    url: isPubliclyVisible && binding
+                        ? binding.path.replace(':' + binding.paramName, String(readEntryFieldValue(entry, binding.fieldKey, (k) => this.contentEntryRepository.hasColumn(k))))
+                        : undefined,
+                });
+                continue;
+            }
 
             if (SINGLE_SOURCE_TYPES.includes(section.type)) {
                 if (ds.mode === 'manual' && Array.isArray(ds.ids) && ds.ids.includes(entryId)) {

@@ -13,6 +13,7 @@ import { PageService } from '@/modules/page/application/services/page.service';
 import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType } from '@/modules/page/application/dto/page.dto';
 import { SectionService } from '@/modules/section/application/services/section.service';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
+import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
 import { HeaderPresetService } from '@/modules/headerPreset/application/services/headerPreset.service';
 import { FooterPresetService } from '@/modules/footerPreset/application/services/footerPreset.service';
 import { HeaderPresetEntity } from '@/modules/headerPreset/domain/entities/headerPreset.entity';
@@ -32,6 +33,7 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     private pageService: PageService;
     private sectionService = new SectionService();
     private contentEntryService = new ContentEntryService();
+    private contentTypeService = new ContentTypeService();
     private headerPresetService = new HeaderPresetService();
     private footerPresetService = new FooterPresetService();
     private pageVersionService = new PageVersionService();
@@ -245,6 +247,49 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 });
             }
         }
+
+        // Trang kiểu β (mục γ 3.2) — Block CONTENT_DETAIL tự cấu hình, THAY THẾ dần cơ chế
+        // page-level COLLECTION_DETAIL ở trên. Với MỖI content type suy được 1 binding hợp lệ
+        // (PageService.findDetailBinding, Task 2), liệt kê TẤT CẢ entry PUBLISHED của content
+        // type đó. Áp dụng ĐÚNG logic lọc y hệt nhánh COLLECTION_DETAIL phía trên — không bỏ
+        // sót: (a) Content Visibility Rules qua findPublicEntries (cùng hàm, cùng cách gọi),
+        // (b) robotsIndex===false ở CẢ entry lẫn trang chứa block (trang chứa block đã có sẵn
+        // trong `staticPages` vì nó cũng phải PUBLISHED để findDetailBinding chọn nó). Bỏ sót
+        // bước lọc này từng là 1 lỗ hổng bảo mật thật (lộ URL entry lẽ ra phải ẩn) đã được vá
+        // ở phase trước của γ — xem `.superpowers/sdd/progress.md`.
+        const contentTypes = await this.contentTypeService.findByCondition({});
+        for (const contentType of contentTypes) {
+            const binding = await this.pageService.findDetailBinding(contentType.id);
+            if (!binding) continue;
+
+            const boundPage = staticPages.find((p) => p.path === binding.path);
+            if (boundPage?.seo?.robotsIndex === false) continue;
+
+            const entries = await this.contentEntryService.findPublicEntries({
+                contentTypeId: contentType.id,
+                filters: [],
+            });
+            for (const entry of entries) {
+                if (entry.seo?.robotsIndex === false) continue;
+                // `binding.fieldKey` có thể là 1 cột THẬT trên ContentEntryEntity (vd `slug`,
+                // trước khi γ 3.3 xoá hẳn cột này) chứ không chỉ key trong JSONB `data` — đọc
+                // qua `hasColumn` để nhất quán với cách repository filter builder
+                // (`applyFieldCondition`) đã phân biệt cột thật vs field JSONB, tránh sinh URL
+                // ".../undefined" cho content type còn dùng cột `slug` cũ (xác nhận bằng dữ liệu
+                // QA thật "QA beta detail mode" — xem contentEntryUsage.service.ts's
+                // `readEntryFieldValue` cho cùng lý do).
+                const fieldValue = this.contentEntryService.hasColumn(binding.fieldKey)
+                    ? (entry as any)[binding.fieldKey]
+                    : entry.data?.[binding.fieldKey];
+                urls.push({
+                    path: binding.path.replace(':' + binding.paramName, String(fieldValue)),
+                    updatedAt: entry.updatedAt,
+                    priority: entry.seo?.sitemapPriority ?? boundPage?.seo?.sitemapPriority,
+                    changeFreq: entry.seo?.sitemapChangeFreq ?? boundPage?.seo?.sitemapChangeFreq,
+                });
+            }
+        }
+
         return urls;
     }
 
