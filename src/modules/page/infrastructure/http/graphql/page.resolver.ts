@@ -187,6 +187,10 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     @Query('getPublicDetailPathByContentType', { returnType: String })
     @GQLPublic()
     async getPublicDetailPathByContentType(@Args('contentTypeId') contentTypeId: string) {
+        const binding = await this.pageService.findDetailBinding(contentTypeId);
+        if (binding) return binding.path;
+        // Cơ chế CŨ (page-level COLLECTION_DETAIL) — vẫn giữ làm fallback, TASK NÀY CHƯA XOÁ (xoá hẳn
+        // là việc của Task 4, sau khi xác nhận không còn trang COLLECTION_DETAIL nào trong môi trường).
         const page = await this.pageService.findOneByCondition({
             where: { contentTypeId, pageType: EPageType.COLLECTION_DETAIL, status: EPageStatus.PUBLISHED },
         });
