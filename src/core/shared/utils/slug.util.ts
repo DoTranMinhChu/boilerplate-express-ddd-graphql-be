@@ -45,7 +45,7 @@ export function assertValidPagePath(path: string): void {
 /**
  * So khớp 1 path CỤ THỂ (vd "/danh-muc/ao-thun") với 1 pattern có thể chứa nhiều
  * đoạn ":paramName" ở BẤT KỲ vị trí nào (vd "/danh-muc/:tenDanhMuc") — tổng quát hơn
- * matchCollectionDetail() (chỉ hỗ trợ đúng 1 tham số ":slug" ở cuối). Trả về map
+ * cơ chế cũ (chỉ hỗ trợ đúng 1 tham số ":slug" ở cuối). Trả về map
  * params nếu khớp (rỗng nếu pattern không có tham số nào), null nếu không khớp
  * (khác số đoạn, hoặc 1 đoạn literal không trùng).
  */

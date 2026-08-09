@@ -12,7 +12,6 @@ import { CreateContentEntryInput, UpdateContentEntryInput, RelatedEntriesQueryIn
 import { ContentEntryUsageLocationType } from '@/modules/contentEntry/application/dto/contentEntryUsage.dto';
 import { PageService } from '@/modules/page/application/services/page.service';
 import { RedirectService } from '@/modules/page/application/services/redirect.service';
-import { EPageType } from '@/modules/page/application/enums/page.enum';
 import { FindOneOptions } from 'typeorm';
 
 const ContentEntryPagination = PaginatedResponse(ContentEntryEntity);
@@ -129,15 +128,17 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     ) {
         const { entry, oldSlug, contentTypeId } = await this.contentEntryService.updateEntry(id, data as any);
 
-        // Nếu slug đổi và có 1 COLLECTION_DETAIL page publish cho contentType này,
+        // Nếu slug đổi và trang Chi tiết của contentType này build URL TỪ CHÍNH cột `slug`
+        // (suy ngược qua PageService.findDetailBinding — Block CONTENT_DETAIL, mục γ 3.2),
         // URL công khai của entry cũng đổi theo pattern -> tự ghi redirect (mục 17 spec).
+        // Binding gắn với field khác (vd 1 field JSONB riêng) thì đổi `slug` không làm URL
+        // đổi -> không ghi redirect.
         if (entry.slug !== oldSlug) {
-            const detailPage = await this.pageService.findOneByCondition({
-                where: { contentTypeId, pageType: EPageType.COLLECTION_DETAIL },
-            });
-            if (detailPage) {
-                const fromPath = detailPage.path.replace(':slug', oldSlug);
-                const toPath = detailPage.path.replace(':slug', entry.slug);
+            const binding = await this.pageService.findDetailBinding(contentTypeId);
+            if (binding && binding.fieldKey === 'slug') {
+                const token = ':' + binding.paramName;
+                const fromPath = binding.path.replace(token, oldSlug);
+                const toPath = binding.path.replace(token, entry.slug);
                 await this.redirectService.recordPathChange(fromPath, toPath);
             }
         }

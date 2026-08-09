@@ -59,7 +59,7 @@ export class UpdateRedirectInput {
 }
 
 // 1 URL trong sitemap.xml — mục 12 spec CMS (sitemapPriority/sitemapChangeFreq trên
-// Seo). `path` LUÔN là URL thật (đã thay ":slug" bằng slug thật cho COLLECTION_DETAIL).
+// Seo). `path` LUÔN là URL thật (pattern ":param" đã được thay bằng giá trị thật).
 @ObjectType('SitemapUrl')
 export class SitemapUrlType {
     @Field({ type: String }) path!: string;
@@ -68,9 +68,10 @@ export class SitemapUrlType {
     @Field({ type: String, nullable: true }) changeFreq?: string;
 }
 
-// Trả về bởi query công khai `pageResolver(path)` — mục 25 spec CMS. `entry` chỉ
-// có giá trị khi page.pageType = COLLECTION_DETAIL. `seo` đã merge fallback
-// entry.seo -> page.seo -> {} (FE tự áp template mặc định "{title} | {siteName}").
+// Trả về bởi query công khai `pageResolver(path)` — mục 25 spec CMS. `entry` là DI SẢN
+// của cơ chế page-level COLLECTION_DETAIL (đã xoá ở mục γ) nên luôn null; entry của trang
+// Chi tiết nay do Block CONTENT_DETAIL tự nạp qua dataSource. Giữ field để không phá
+// query FE hiện có. `seo` đã merge fallback page.seo -> {} (FE tự áp template mặc định).
 // `header`/`footer` đã merge fallback page.headerPresetId/footerPresetId -> preset
 // isDefault=true -> undefined (FE tự bỏ qua chrome khi cả 2 đều thiếu).
 @ObjectType('PageResolverResult')

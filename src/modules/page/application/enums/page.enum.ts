@@ -3,7 +3,6 @@ import { RegisterEnum } from '@/core/shared/decorators/graphQL.decorators';
 export enum EPageType {
     STATIC_MODULAR = 'STATIC_MODULAR',
     COLLECTION_LISTING = 'COLLECTION_LISTING',
-    COLLECTION_DETAIL = 'COLLECTION_DETAIL',
     SPECIAL = 'SPECIAL',
 }
 RegisterEnum(EPageType, 'EPageType');

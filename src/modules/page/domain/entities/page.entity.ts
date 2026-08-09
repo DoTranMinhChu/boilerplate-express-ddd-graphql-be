@@ -12,8 +12,8 @@ export class PageEntity extends BaseEntity {
     @Column()
     internalName!: string;
 
-    // Path tĩnh (STATIC_MODULAR/SPECIAL/COLLECTION_LISTING) hoặc pattern có
-    // ":slug" ở cuối (COLLECTION_DETAIL), vd "/du-an/:slug". Luôn bắt đầu bằng "/".
+    // Path tĩnh (vd "/gioi-thieu") hoặc pattern có tham số động ":param" (vd
+    // "/du-an/:slug" — trang Chi tiết kiểu β). Luôn bắt đầu bằng "/".
     @Field({ type: String })
     @Index({ unique: true })
     @Column()
@@ -34,7 +34,8 @@ export class PageEntity extends BaseEntity {
     @Column({ nullable: true })
     parentPageId?: string;
 
-    // Bắt buộc có khi pageType = COLLECTION_LISTING | COLLECTION_DETAIL.
+    // Bắt buộc có khi pageType = COLLECTION_LISTING. Trang Chi tiết KHÔNG dùng field này
+    // nữa (content type do dataSource của Block CONTENT_DETAIL quyết định — mục γ).
     @Field({ type: String, nullable: true })
     @Index()
     @Column({ nullable: true })

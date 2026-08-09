@@ -18,7 +18,7 @@ import { HeaderPresetService } from '@/modules/headerPreset/application/services
 import { FooterPresetService } from '@/modules/footerPreset/application/services/footerPreset.service';
 import { HeaderPresetEntity } from '@/modules/headerPreset/domain/entities/headerPreset.entity';
 import { FooterPresetEntity } from '@/modules/footerPreset/domain/entities/footerPreset.entity';
-import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.enum';
+import { EPageStatus } from '@/modules/page/application/enums/page.enum';
 import { normalizePagePath } from '@/core/shared/utils/slug.util';
 import { FindOneOptions } from 'typeorm';
 import { PageVersionEntity } from '@/modules/page/domain/entities/pageVersion.entity';
@@ -99,46 +99,6 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
             };
         }
 
-        const detailMatch = await this.pageService.matchCollectionDetail(path, preview);
-        if (detailMatch) {
-            const { page, slug } = detailMatch;
-            const entry = await this.contentEntryService.findOneByCondition({
-                where: preview
-                    ? { contentTypeId: page.contentTypeId, slug }
-                    : { contentTypeId: page.contentTypeId, slug, status: EPageStatus.PUBLISHED },
-            });
-            if (!entry) return null;
-
-            // Content Visibility Rules chỉ áp dụng cho đường công khai THẬT — nhân viên xem
-            // trước (preview=true) luôn thấy dữ liệu thật, không bị chặn (đã thống nhất với
-            // chủ dự án — xem design doc mục 1.2: Preview không phải nơi cần ẩn dữ liệu, chỉ
-            // trang công khai thật mới cần).
-            if (!preview) {
-                const visibleEntries = await this.contentEntryService.findPublicEntries({
-                    contentTypeId: entry.contentTypeId,
-                    ids: [entry.id],
-                    filters: [],
-                    limit: 1,
-                });
-                if (!visibleEntries.length) return null;
-            }
-
-            const [sections, { header, footer }] = await Promise.all([
-                this.sectionService.findByPage(page.id),
-                this.resolveHeaderFooter(page),
-            ]);
-            const hasEntrySeo = Object.keys(entry.seo || {}).length > 0;
-            return {
-                page,
-                sections,
-                seo: hasEntrySeo ? { ...entry.seo } : { ...page.seo },
-                entry,
-                params: { slug },
-                header,
-                footer,
-            };
-        }
-
         const paramMatch = await this.pageService.findByParamPattern(path, preview);
         if (paramMatch) {
             const { page, params } = paramMatch;
@@ -182,28 +142,23 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
 
     /**
      * Public helper cho FE render section list động (ContentGrid...): lấy path
-     * pattern của trang COLLECTION_DETAIL đang publish cho 1 contentTypeId, để
-     * tự build link tới từng entry (`pattern.replace(':slug', entry.slug)`)
+     * pattern của trang Chi tiết đang publish cho 1 contentTypeId (suy từ Block
+     * CONTENT_DETAIL tự cấu hình — mục γ 3.2), để tự build link tới từng entry
      * mà không cần lộ toàn bộ Page qua API công khai.
      */
     @Query('getPublicDetailPathByContentType', { returnType: String })
     @GQLPublic()
     async getPublicDetailPathByContentType(@Args('contentTypeId') contentTypeId: string) {
         const binding = await this.pageService.findDetailBinding(contentTypeId);
-        if (binding) return binding.path;
-        // Cơ chế CŨ (page-level COLLECTION_DETAIL) — vẫn giữ làm fallback, TASK NÀY CHƯA XOÁ (xoá hẳn
-        // là việc của Task 4, sau khi xác nhận không còn trang COLLECTION_DETAIL nào trong môi trường).
-        const page = await this.pageService.findOneByCondition({
-            where: { contentTypeId, pageType: EPageType.COLLECTION_DETAIL, status: EPageStatus.PUBLISHED },
-        });
-        return page?.path ?? null;
+        return binding?.path ?? null;
     }
 
     /**
-     * sitemap.xml (mục 12 spec CMS) — mọi trang tĩnh đang publish (trừ pattern
-     * COLLECTION_DETAIL, không phải URL thật) + mọi ContentEntry đang publish của
-     * các trang COLLECTION_DETAIL đang publish, path thật đã thay ":slug". Bỏ qua
-     * URL nào có robotsIndex=false (admin chủ động ẩn khỏi index).
+     * sitemap.xml (mục 12 spec CMS) — mọi trang đang publish có path TĨNH (path chứa
+     * ":param" là pattern, không phải URL thật -> bỏ qua, URL thật của chúng được sinh
+     * ở vòng lặp binding phía dưới) + mọi ContentEntry đang publish của các trang Chi
+     * tiết kiểu β (Block CONTENT_DETAIL), path thật đã thay ":param". Bỏ qua URL nào có
+     * robotsIndex=false (admin chủ động ẩn khỏi index).
      */
     @Query('getSitemapUrls', { returnType: [SitemapUrlType] })
     @GQLPublic()
@@ -216,42 +171,24 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         for (const page of staticPages) {
             if (page.seo?.robotsIndex === false) continue;
 
-            if (page.pageType !== EPageType.COLLECTION_DETAIL) {
-                urls.push({
-                    path: page.path,
-                    updatedAt: page.updatedAt,
-                    priority: page.seo?.sitemapPriority,
-                    changeFreq: page.seo?.sitemapChangeFreq,
-                });
-                continue;
-            }
+            // Path chứa ":param" là PATTERN, không phải URL thật -> không đưa thẳng vào sitemap.
+            // (Trước mục γ điều kiện tương đương là `pageType !== COLLECTION_DETAIL`; sau khi xoá
+            // hẳn enum đó, dấu hiệu duy nhất còn lại — và tổng quát hơn — là path có tham số động.)
+            // URL thật của các trang này được sinh ở vòng lặp findDetailBinding phía dưới.
+            if (page.path.includes(':')) continue;
 
-            if (!page.contentTypeId) continue;
-
-            // Sitemap luôn công khai (crawler không có token), không có limit (cần TOÀN BỘ
-            // entry đang publish, không phải 1 trang danh sách bị giới hạn số lượng) -> route
-            // qua findPublicEntries để Content Visibility Rules áp dụng ở đây cũng như mọi
-            // read công khai khác -- entry bị ẩn không được xuất hiện trong sitemap.xml để
-            // crawler lập chỉ mục.
-            const entries = await this.contentEntryService.findPublicEntries({
-                contentTypeId: page.contentTypeId,
-                filters: [],
+            urls.push({
+                path: page.path,
+                updatedAt: page.updatedAt,
+                priority: page.seo?.sitemapPriority,
+                changeFreq: page.seo?.sitemapChangeFreq,
             });
-            for (const entry of entries) {
-                if (entry.seo?.robotsIndex === false) continue;
-                urls.push({
-                    path: page.path.replace(':slug', entry.slug),
-                    updatedAt: entry.updatedAt,
-                    priority: entry.seo?.sitemapPriority ?? page.seo?.sitemapPriority,
-                    changeFreq: entry.seo?.sitemapChangeFreq ?? page.seo?.sitemapChangeFreq,
-                });
-            }
         }
 
-        // Trang kiểu β (mục γ 3.2) — Block CONTENT_DETAIL tự cấu hình, THAY THẾ dần cơ chế
-        // page-level COLLECTION_DETAIL ở trên. Với MỖI content type suy được 1 binding hợp lệ
-        // (PageService.findDetailBinding, Task 2), liệt kê TẤT CẢ entry PUBLISHED của content
-        // type đó. Áp dụng ĐÚNG logic lọc y hệt nhánh COLLECTION_DETAIL phía trên — không bỏ
+        // Trang Chi tiết kiểu β (mục γ 3.2) — Block CONTENT_DETAIL tự cấu hình, nay là cơ chế
+        // DUY NHẤT (page-level COLLECTION_DETAIL đã bị xoá hẳn ở mục γ). Với MỖI content type suy
+        // được 1 binding hợp lệ (PageService.findDetailBinding, Task 2), liệt kê TẤT CẢ entry
+        // PUBLISHED của content type đó, áp dụng đầy đủ các bước lọc — không bỏ
         // sót: (a) Content Visibility Rules qua findPublicEntries (cùng hàm, cùng cách gọi),
         // (b) robotsIndex===false ở CẢ entry lẫn trang chứa block (trang chứa block đã có sẵn
         // trong `staticPages` vì nó cũng phải PUBLISHED để findDetailBinding chọn nó). Bỏ sót

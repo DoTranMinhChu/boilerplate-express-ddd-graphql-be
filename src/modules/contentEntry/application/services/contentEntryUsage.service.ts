@@ -2,7 +2,7 @@ import { In } from 'typeorm';
 import { ContentEntryRepository } from '@/modules/contentEntry/infrastructure/persistence/contentEntry.repository';
 import { PageRepository } from '@/modules/page/infrastructure/persistence/page.repository';
 import { SectionRepository } from '@/modules/section/infrastructure/persistence/section.repository';
-import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.enum';
+import { EPageStatus } from '@/modules/page/application/enums/page.enum';
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
 import { PageService } from '@/modules/page/application/services/page.service';
 
@@ -94,28 +94,13 @@ export class ContentEntryUsageService {
         });
         const isPubliclyVisible = publiclyVisible.length > 0;
 
-        // 1. Trang Chi tiết gắn với Content Type của entry — suy đoán "1 URL duy
-        // nhất" cũ, vẫn hữu ích nên giữ lại như 1 mục trong danh sách (không còn
-        // là kết quả DUY NHẤT như trước).
-        const detailPage = publishedPages.find((p) => p.pageType === EPageType.COLLECTION_DETAIL && p.contentTypeId === entry.contentTypeId);
-        if (detailPage) {
-            results.push({
-                pageId: detailPage.id,
-                pageLabel: detailPage.internalName,
-                pagePath: detailPage.path,
-                sectionType: 'collection-detail-page',
-                matchKind: isPubliclyVisible ? 'detail' : 'detail-not-visible',
-                url: isPubliclyVisible ? detailPage.path.replace(':slug', entry.slug) : undefined,
-            });
-        }
-
         for (const section of sections) {
             const page = pageById.get(section.pageId);
             if (!page) continue;
             const ds = (section.dataSource || {}) as Record<string, any>;
 
-            // Block CONTENT_DETAIL tự cấu hình (mục γ 3.2) — cơ chế MỚI thay thế dần
-            // page-level COLLECTION_DETAIL ở nhánh (1) phía trên. Nhận diện: section
+            // Block CONTENT_DETAIL tự cấu hình (mục γ 3.2) — cơ chế DUY NHẤT nhận diện
+            // "trang Chi tiết" (page-level COLLECTION_DETAIL đã bị xoá hẳn). Nhận diện: section
             // kiểu 'content-detail', dataSource.mode === 'detail', và contentTypeId
             // khớp đúng content type của entry đang tra cứu. `url` build lại qua
             // PageService.findDetailBinding (Task 2) — CÙNG công thức chuẩn xuyên suốt

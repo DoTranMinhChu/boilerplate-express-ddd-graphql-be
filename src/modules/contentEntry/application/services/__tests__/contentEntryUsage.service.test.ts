@@ -45,11 +45,13 @@ function makeService(setup: Setup) {
 
 const ENTRY = { id: 'entry-1', contentTypeId: 'ct-1', slug: 'bai-viet-a' };
 
+// Trang Chi tiết kiểu β (mục γ): pageType luôn STATIC_MODULAR, path có tham số động;
+// "là trang Chi tiết" được quyết bởi Block CONTENT_DETAIL, không còn bởi pageType.
 const DETAIL_PAGE = {
     id: 'page-detail',
     internalName: 'Trang Chi tiết Bài viết',
     path: '/bai-viet/:slug',
-    pageType: EPageType.COLLECTION_DETAIL,
+    pageType: EPageType.STATIC_MODULAR,
     contentTypeId: 'ct-1',
     status: EPageStatus.PUBLISHED,
 };
@@ -65,32 +67,6 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         const { service } = makeService({ entry: ENTRY, pages: [], sections: [] });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toEqual([]);
-    });
-
-    it('có trang Chi tiết gắn Content Type của entry, entry hiển thị công khai thật (findPublicList trả về entry) -> matchKind detail, url đúng slug', async () => {
-        const { service } = makeService({ entry: ENTRY, pages: [DETAIL_PAGE], sections: [], findPublicListResult: [{ id: 'entry-1' }] });
-        const result = await service.findUsageLocations('entry-1');
-        expect(result).toContainEqual({
-            pageId: 'page-detail',
-            pageLabel: 'Trang Chi tiết Bài viết',
-            pagePath: '/bai-viet/:slug',
-            sectionType: 'collection-detail-page',
-            matchKind: 'detail',
-            url: '/bai-viet/bai-viet-a',
-        });
-    });
-
-    it('có trang Chi tiết gắn Content Type nhưng entry KHÔNG hiển thị công khai thật (findPublicList trả về []) -> matchKind detail-not-visible, không có url', async () => {
-        const { service } = makeService({ entry: ENTRY, pages: [DETAIL_PAGE], sections: [], findPublicListResult: [] });
-        const result = await service.findUsageLocations('entry-1');
-        expect(result).toContainEqual({
-            pageId: 'page-detail',
-            pageLabel: 'Trang Chi tiết Bài viết',
-            pagePath: '/bai-viet/:slug',
-            sectionType: 'collection-detail-page',
-            matchKind: 'detail-not-visible',
-            url: undefined,
-        });
     });
 
     it('content-grid mode manual ghim id entry, entry hiển thị công khai thật -> matchKind pinned', async () => {
@@ -200,7 +176,7 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
     });
 
     it('backlink-entries có sourceContentTypeId khớp entry -> matchKind contextual', async () => {
-        const listingPage = { id: 'page-listing', internalName: 'Danh mục', path: '/danh-muc/:slug', pageType: EPageType.COLLECTION_DETAIL, contentTypeId: 'ct-danh-muc', status: EPageStatus.PUBLISHED };
+        const listingPage = { id: 'page-listing', internalName: 'Danh mục', path: '/danh-muc/:slug', pageType: EPageType.STATIC_MODULAR, contentTypeId: 'ct-danh-muc', status: EPageStatus.PUBLISHED };
         const section = { id: 'sec-backlink', pageId: 'page-listing', type: 'backlink-entries', enabled: true, dataSource: { sourceContentTypeId: 'ct-1', matchField: 'danhMucId' } };
         const { service } = makeService({ entry: ENTRY, pages: [listingPage], sections: [section] });
         const result = await service.findUsageLocations('entry-1');

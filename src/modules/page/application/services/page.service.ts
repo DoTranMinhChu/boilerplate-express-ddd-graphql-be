@@ -29,9 +29,6 @@ export class PageService extends BaseService<PageEntity> {
     async createPage(data: DeepPartial<PageEntity>): Promise<PageEntity> {
         const path = normalizePagePath(data.path as string);
         assertValidPagePath(path);
-        if ((data.pageType === EPageType.COLLECTION_DETAIL) && !data.contentTypeId) {
-            throw new ConflictException('COLLECTION_DETAIL page bắt buộc phải gắn contentTypeId.');
-        }
         await this.assertPathAvailable(path);
         return this.create({ ...data, path });
     }
@@ -89,36 +86,12 @@ export class PageService extends BaseService<PageEntity> {
     }
 
     /**
-     * Match path thực tế (vd "/du-an/almaz") với các COLLECTION_DETAIL page có
-     * pattern dạng ".../:slug" (1 tham số động cuối path — đủ cho phần lớn use
-     * case của spec; pattern nhiều tham số động — vd "/:category/:slug" — là
-     * phần mở rộng cho phase sau, không xử lý ở đây).
-     */
-    async matchCollectionDetail(path: string, preview = false): Promise<{ page: PageEntity; slug: string } | null> {
-        const segments = path.split('/').filter(Boolean);
-        if (segments.length === 0) return null;
-        const slug = segments[segments.length - 1];
-        const prefix = `/${segments.slice(0, -1).join('/')}`;
-        const patternPath = `${prefix === '/' ? '' : prefix}/:slug`;
-
-        const page = await this.pageRepository.findOneByCondition({
-            where: preview
-                ? { path: patternPath, pageType: EPageType.COLLECTION_DETAIL }
-                : { path: patternPath, pageType: EPageType.COLLECTION_DETAIL, status: EPageStatus.PUBLISHED },
-        });
-        if (!page) return null;
-        return { page, slug };
-    }
-
-    /**
      * Match path với BẤT KỲ page STATIC_MODULAR/SPECIAL nào có ":param" trong path
-     * đã lưu (vd "/danh-muc/:tenDanhMuc") — tổng quát hơn matchCollectionDetail (chỉ
-     * ":slug" ở cuối). Số page có ":" trong path luôn nhỏ (đa số path là tĩnh, không
-     * tham số) nên fetch hết rồi so khớp trong bộ nhớ là đủ nhanh, không cần tối ưu
-     * bằng 1 query khớp chính xác như matchCollectionDetail.
-     * KHÔNG xử lý COLLECTION_DETAIL ở đây (đã có matchCollectionDetail riêng, gọi
-     * TRƯỚC hàm này ở resolvePage) — path nhiều tham số động cho COLLECTION_DETAIL
-     * (vd "/:category/:slug") vẫn là phần mở rộng của Phase 3, không xử lý ở đây.
+     * đã lưu (vd "/danh-muc/:tenDanhMuc"). Số page có ":" trong path luôn nhỏ (đa số
+     * path là tĩnh, không tham số) nên fetch hết rồi so khớp trong bộ nhớ là đủ nhanh.
+     * Đây là cơ chế DUY NHẤT cho trang Chi tiết kể từ mục γ (đã xoá hẳn
+     * EPageType.COLLECTION_DETAIL) — entry được nạp bởi Block CONTENT_DETAIL tự cấu
+     * hình `dataSource.genericFilters` đọc pathParam, không còn ràng buộc ":slug" cuối path.
      */
     async findByParamPattern(path: string, preview = false): Promise<{ page: PageEntity; params: Record<string, string> } | null> {
         const candidates = await this.pageRepository.findByCondition({
@@ -135,8 +108,8 @@ export class PageService extends BaseService<PageEntity> {
 
     /**
      * Suy "Content Type X hiển thị ở URL nào" từ 1 Block CONTENT_DETAIL tự cấu hình (mục γ 3.2 design
-     * 2026-08-09-block-driven-content-binding-design.md), THAY THẾ dần cơ chế cũ (tra page-level
-     * COLLECTION_DETAIL + cột slug cứng). Ràng buộc đã chốt: CHỈ hoạt động khi block có ĐÚNG 1 điều kiện lọc
+     * 2026-08-09-block-driven-content-binding-design.md). Đây là cơ chế DUY NHẤT kể từ mục γ (cơ chế cũ
+     * tra page-level COLLECTION_DETAIL đã bị xoá hẳn). Ràng buộc đã chốt: CHỈ hoạt động khi block có ĐÚNG 1 điều kiện lọc
      * dạng `field = pathParam` (không static kèm theo, không nhiều điều kiện) — trường hợp phức tạp hơn trả
      * về null (KHÔNG throw), coi như "không suy ngược được", giống hệt hành vi hiện tại khi Content Type
      * chưa có trang Chi tiết nào. Nhiều trang cùng khớp -> lấy trang publish SỚM NHẤT (createdAt).

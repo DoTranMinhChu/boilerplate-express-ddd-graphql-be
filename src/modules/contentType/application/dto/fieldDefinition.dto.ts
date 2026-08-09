@@ -14,7 +14,7 @@ export class FieldDefinitionType {
     @Field({ type: Boolean, nullable: true }) showInListing?: boolean;
 
     /** Sample value shown for this field when the Page Builder previews a
-     * COLLECTION_DETAIL page's `content-detail` section — there is no real entry
+     * detail page's `content-detail` section — there is no real entry
      * bound while editing structure/animation, so a mock keeps the canvas
      * WYSIWYG instead of blank. Never used on the public site (real entry data
      * always wins there). */
