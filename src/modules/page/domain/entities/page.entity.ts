@@ -79,4 +79,16 @@ export class PageEntity extends BaseEntity {
     @Field({ type: GraphQLMixed, nullable: true })
     @Column({ type: 'jsonb', default: {} })
     style?: Record<string, string>;
+
+    // Ánh xạ "field SEO -> field key của Content Type gắn ở block Chi tiết (CONTENT_DETAIL)
+    // đầu tiên của trang" (mục δ design 2026-08-09-block-driven-content-binding-design.md).
+    // Key = 1 trong 12 key của SeoType (title/description/ogTitle/ogDescription/ogImage/
+    // twitterImage/robotsIndex/robotsFollow/canonicalUrl/structuredData/sitemapPriority/
+    // sitemapChangeFreq), value = field key của Content Type đích. Field nào KHÔNG có trong
+    // mapping (hoặc entry.data không có giá trị ở field đích) -> fallback `seo` tĩnh phía
+    // trên. Trang KHÔNG có block Chi tiết nào -> field này vô nghĩa, không đọc tới. 1 CỘT
+    // JSONB RIÊNG, không gộp vào `style` (ý nghĩa khác hẳn: nền/font vs SEO).
+    @Field({ type: GraphQLMixed, nullable: true })
+    @Column({ type: 'jsonb', default: {} })
+    seoFieldMapping?: Record<string, string>;
 }
