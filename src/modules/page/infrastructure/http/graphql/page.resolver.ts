@@ -10,7 +10,7 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { PageEntity } from '@/modules/page/domain/entities/page.entity';
 import { PageService } from '@/modules/page/application/services/page.service';
-import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType } from '@/modules/page/application/dto/page.dto';
+import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType, DetailPathBindingType } from '@/modules/page/application/dto/page.dto';
 import { SectionService } from '@/modules/section/application/services/section.service';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
@@ -145,12 +145,19 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
      * pattern của trang Chi tiết đang publish cho 1 contentTypeId (suy từ Block
      * CONTENT_DETAIL tự cấu hình — mục γ 3.2), để tự build link tới từng entry
      * mà không cần lộ toàn bộ Page qua API công khai.
+     *
+     * Fix Important #3 (γ final review): trước đây trả về String (chỉ `path`),
+     * buộc FE hardcode giả định field key feed-URL LUÔN là "slug" ở 6 nơi khác
+     * nhau — sai với content type dùng field feed-URL tên khác (bug thật xác
+     * nhận với content type "QA Gamma Task5", field `duongDan`). Nay trả
+     * nguyên object `binding` (path + paramName + fieldKey) để FE đọc field key
+     * ĐÚNG, không đoán. ĐÂY LÀ BREAKING CHANGE VỀ SHAPE GraphQL (String -> Object)
+     * — mọi FE call site đã được cập nhật đồng bộ trong cùng đợt fix này.
      */
-    @Query('getPublicDetailPathByContentType', { returnType: String })
+    @Query('getPublicDetailPathByContentType', { returnType: DetailPathBindingType })
     @GQLPublic()
     async getPublicDetailPathByContentType(@Args('contentTypeId') contentTypeId: string) {
-        const binding = await this.pageService.findDetailBinding(contentTypeId);
-        return binding?.path ?? null;
+        return this.pageService.findDetailBinding(contentTypeId);
     }
 
     /**

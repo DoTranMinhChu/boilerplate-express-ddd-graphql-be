@@ -68,6 +68,19 @@ export class SitemapUrlType {
     @Field({ type: String, nullable: true }) changeFreq?: string;
 }
 
+// Trả về bởi `getPublicDetailPathByContentType` (mục γ final review, Fix Important #3) — trước
+// đây query này chỉ trả String (`binding.path`), buộc FE phải TỰ GIẢ ĐỊNH field key feed vào
+// URL luôn tên "slug" (cả tên field trong `data` JSONB LẪN tên param trong path pattern) để tự
+// build href tới entry khác — sai với mọi content type dùng field feed-URL tên khác "slug" (bug
+// thật đã xác nhận với content type "QA Gamma Task5", field `duongDan`). Trả nguyên `binding`
+// (PageService.findDetailBinding, Task 2) để FE đọc field key/param name ĐỘNG thay vì đoán.
+@ObjectType('DetailPathBinding')
+export class DetailPathBindingType {
+    @Field({ type: String }) path!: string;
+    @Field({ type: String }) paramName!: string;
+    @Field({ type: String }) fieldKey!: string;
+}
+
 // Trả về bởi query công khai `pageResolver(path)` — mục 25 spec CMS. `entry` là DI SẢN
 // của cơ chế page-level COLLECTION_DETAIL (đã xoá ở mục γ) nên luôn null; entry của trang
 // Chi tiết nay do Block CONTENT_DETAIL tự nạp qua dataSource. Giữ field để không phá
