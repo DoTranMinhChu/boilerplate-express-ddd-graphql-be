@@ -106,6 +106,59 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         return slugify(String(source));
     }
 
+    /** Kiểm tra unique + tự sinh giá trị (autoGenerateFrom) cho MỌI field TEXT có 1 trong 2 thuộc tính này —
+     * generic theo field key bất kỳ (mục α design 2026-08-09-block-driven-content-binding-design.md), KHÔNG
+     * riêng cho slug. Mutate `data` TẠI CHỖ khi tự sinh (để validateData() chạy sau đó thấy giá trị đã điền).
+     * `previousData` (chỉ truyền ở updateEntry) để BỎ QUA kiểm tra khi giá trị không đổi so với bản ghi hiện
+     * có — tránh 1 query DB thừa mỗi lần lưu, đúng tối ưu `assertSlugAvailable` đã áp dụng cho cơ chế cũ. */
+    private async resolveUniqueFields(
+        fields: FieldDefinitionType[],
+        data: Record<string, any>,
+        contentTypeId: string,
+        excludeId?: string,
+        previousData?: Record<string, any>,
+    ): Promise<void> {
+        for (const f of fields) {
+            if (f.type !== EFieldType.TEXT) continue;
+            if (!f.unique && !f.autoGenerateFrom) continue;
+
+            const value = data[f.key];
+            const isEmpty = value === undefined || value === null || value === '';
+
+            if (isEmpty && f.autoGenerateFrom) {
+                const source = data[f.autoGenerateFrom];
+                if (source === undefined || source === null || source === '') continue;
+                let candidate = slugify(String(source));
+                if (f.unique) {
+                    candidate = await this.ensureUniqueValue(contentTypeId, f.key, candidate, excludeId);
+                }
+                data[f.key] = candidate;
+                continue;
+            }
+
+            if (!isEmpty && f.unique) {
+                if (previousData && previousData[f.key] === value) continue;
+                const taken = await this.contentEntryRepository.existsByFieldValue(contentTypeId, f.key, String(value), excludeId);
+                if (taken) {
+                    throw new ConflictException(`Giá trị "${value}" của field "${f.label}" đã tồn tại trong content type này.`);
+                }
+            }
+        }
+    }
+
+    private async ensureUniqueValue(contentTypeId: string, fieldKey: string, base: string, excludeId?: string): Promise<string> {
+        let candidate = base;
+        let suffix = 2;
+        while (await this.contentEntryRepository.existsByFieldValue(contentTypeId, fieldKey, candidate, excludeId)) {
+            if (suffix > 50) {
+                throw new ConflictException(`Không thể tự sinh giá trị duy nhất cho field "${fieldKey}" sau 50 lần thử (base: "${base}").`);
+            }
+            candidate = `${base}-${suffix}`;
+            suffix++;
+        }
+        return candidate;
+    }
+
     /** Map thẳng contentVisibilityRules của ContentType sang FieldCondition cho tầng query
      * builder — rule đã khai báo LUÔN được áp dụng (không còn khái niệm "trừ khi role X",
      * xem design doc 2026-08-08-visibility-rules-simplify-and-usage-lookup). Content Type
@@ -126,11 +179,13 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         const contentType = await this.contentTypeService.findById(input.contentTypeId as string);
         if (!contentType) throw new NotFoundException('Không tìm thấy content type.');
 
-        this.validateData(contentType.fields, input.data as Record<string, any>);
-        const slug = this.resolveSlug(contentType.fields, input.data as Record<string, any>, input.slug);
+        const data = (input.data as Record<string, any>) || {};
+        await this.resolveUniqueFields(contentType.fields, data, input.contentTypeId as string);
+        this.validateData(contentType.fields, data);
+        const slug = this.resolveSlug(contentType.fields, data, input.slug);
         await this.assertSlugAvailable(input.contentTypeId as string, slug);
 
-        return this.create({ ...input, slug });
+        return this.create({ ...input, data, slug });
     }
 
     async updateEntry(id: string, input: DeepPartial<ContentEntryEntity> & { slug?: string }): Promise<{ entry: ContentEntryEntity; oldSlug: string; contentTypeId: string }> {
@@ -141,6 +196,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         if (!contentType) throw new NotFoundException('Không tìm thấy content type.');
 
         const mergedData = { ...current.data, ...(input.data as Record<string, any> | undefined) };
+        await this.resolveUniqueFields(contentType.fields, mergedData, current.contentTypeId, id, current.data);
         this.validateData(contentType.fields, mergedData);
 
         let slug = current.slug;

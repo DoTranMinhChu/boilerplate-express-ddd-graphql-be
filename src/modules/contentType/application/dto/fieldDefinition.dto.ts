@@ -30,6 +30,17 @@ export class FieldDefinitionType {
      * dấu isSlugSource, rồi field TEXT đầu tiên, rồi slug (xem thiết kế mục C). */
     @Field({ type: String, nullable: true }) relationDisplayField?: string;
 
+    /** Field TEXT được đánh dấu unique -> ContentEntryService kiểm tra không cho phép 2 entry CÙNG Content
+     * Type có cùng giá trị field này. Kiểm tra ở tầng service (JSONB query), không phải index DB cứng — field
+     * key động theo từng Content Type nên không tạo unique index tĩnh cho từng field được. */
+    @Field({ type: Boolean, nullable: true }) unique?: boolean;
+
+    /** Chỉ dùng khi field trống lúc lưu: tự sinh giá trị = slugify(giá trị field TEXT khác cùng Content Type,
+     * key ghi ở đây). Kết hợp với `unique` ở trên để tự thêm hậu tố "-2"/"-3" khi giá trị tự sinh bị trùng
+     * (KHÔNG báo lỗi trong trường hợp này — chỉ báo lỗi khi NHẬP TAY mà trùng). Thay thế dần vai trò của
+     * `isSlugSource` (chỉ dùng cho slug). Cơ chế này dùng được cho bất kỳ field TEXT nào. */
+    @Field({ type: String, nullable: true }) autoGenerateFrom?: string;
+
     /** Validate rule — chỉ áp theo đúng type tương ứng, bỏ qua nếu field không phải type đó. */
     @Field({ type: Number, nullable: true }) minLength?: number;   // TEXT/RICHTEXT
     @Field({ type: Number, nullable: true }) maxLength?: number;   // TEXT/RICHTEXT

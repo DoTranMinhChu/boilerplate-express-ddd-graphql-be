@@ -176,3 +176,89 @@ describe('ContentEntryService.validateData — validate rule + TAXONOMY', () => 
         await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { cats: 'not-array' } } as any)).rejects.toThrow(/danh sách/);
     });
 });
+
+const UNIQUE_FIELD_CONTENT_TYPE = {
+    id: 'ct-unique',
+    fields: [
+        { key: 'tieuDe', label: 'Tiêu đề', type: 'TEXT' },
+        { key: 'duongDan', label: 'Đường dẫn', type: 'TEXT', unique: true, autoGenerateFrom: 'tieuDe' },
+        { key: 'maSanPham', label: 'Mã sản phẩm', type: 'TEXT', unique: true },
+    ],
+};
+
+function makeUniqueFieldService(existsByFieldValueImpl: (contentTypeId: string, fieldKey: string, value: string, excludeId?: string) => Promise<boolean>) {
+    const fakeContentTypeService = { findById: jest.fn(async () => UNIQUE_FIELD_CONTENT_TYPE) };
+    const fakeRepo = {
+        findOneByCondition: jest.fn(async () => null), // slug availability (cơ chế CŨ, không đụng) luôn pass
+        existsByFieldValue: jest.fn(existsByFieldValueImpl),
+        create: jest.fn(async (data: any) => ({ id: 'entry-1', ...data })),
+        findById: jest.fn(async () => ({ id: 'entry-1', contentTypeId: 'ct-unique', slug: 'old-slug', data: { tieuDe: 'Cũ', duongDan: 'duong-dan-cu', maSanPham: 'SP-001' } })),
+        updateById: jest.fn(async (id: string, data: any) => ({ id, ...data })),
+        // BaseService.updateById() gọi updateByCondition() -> this.repository.updateOneByCondition() (không
+        // phải updateById ở tầng repository) — mock method THẬT SỰ được gọi trên đường đi qua BaseService,
+        // để test updateEntry chạy được qua path thật thay vì TypeError "not a function".
+        updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
+        // BaseService.updateByCondition() cũng gọi invalidateLoaderCache() -> this.repository.entityClassName()
+        // sau khi update — cần mock để không TypeError, không liên quan tới logic unique/autoGenerateFrom.
+        entityClassName: jest.fn(() => 'ContentEntry'),
+    };
+    const service = new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
+    return { service, fakeRepo };
+}
+
+describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', () => {
+    it('tự sinh giá trị (slugify field nguồn) khi field autoGenerateFrom để trống', async () => {
+        const { service, fakeRepo } = makeUniqueFieldService(async () => false); // không trùng
+        const result = await service.createEntry({
+            contentTypeId: 'ct-unique',
+            slug: 'test-slug',
+            data: { tieuDe: '5 Xu Hướng Thiết Kế', maSanPham: 'SP-002' },
+        } as any);
+        expect((result as any).data.duongDan).toBe('5-xu-huong-thiet-ke');
+        expect(fakeRepo.existsByFieldValue).toHaveBeenCalledWith('ct-unique', 'duongDan', '5-xu-huong-thiet-ke', undefined);
+    });
+
+    it('tự thêm hậu tố -2 khi giá trị TỰ SINH bị trùng, không ném lỗi', async () => {
+        const { service } = makeUniqueFieldService(async (_ct, _key, value) => value === '5-xu-huong-thiet-ke'); // đúng candidate đầu tiên bị trùng, "-2" thì không
+        const result = await service.createEntry({
+            contentTypeId: 'ct-unique',
+            slug: 'test-slug',
+            data: { tieuDe: '5 Xu Hướng Thiết Kế', maSanPham: 'SP-003' },
+        } as any);
+        expect((result as any).data.duongDan).toBe('5-xu-huong-thiet-ke-2');
+    });
+
+    it('ném ConflictException khi field unique NHẬP TAY mà trùng', async () => {
+        const { service } = makeUniqueFieldService(async () => true); // luôn báo trùng
+        await expect(service.createEntry({
+            contentTypeId: 'ct-unique',
+            slug: 'test-slug',
+            data: { tieuDe: 'Bài viết', duongDan: 'da-nhap-tay', maSanPham: 'SP-004' },
+        } as any)).rejects.toThrow(/đã tồn tại/);
+    });
+
+    it('field không có unique/autoGenerateFrom không bị kiểm tra (không gọi existsByFieldValue cho field đó)', async () => {
+        const { service, fakeRepo } = makeUniqueFieldService(async () => false);
+        await service.createEntry({
+            contentTypeId: 'ct-unique',
+            slug: 'test-slug',
+            data: { tieuDe: 'Bài viết bất kỳ', duongDan: 'duong-dan-tay', maSanPham: 'SP-005' },
+        } as any);
+        expect(fakeRepo.existsByFieldValue).not.toHaveBeenCalledWith('ct-unique', 'tieuDe', expect.anything(), expect.anything());
+    });
+
+    it('updateEntry: không kiểm tra lại unique nếu giá trị field KHÔNG đổi so với bản ghi hiện có', async () => {
+        const { service, fakeRepo } = makeUniqueFieldService(async () => true); // nếu bị gọi sẽ báo trùng -> lộ bug nếu test fail
+        const result = await service.updateEntry('entry-1', {
+            data: { duongDan: 'duong-dan-cu' }, // giữ nguyên giá trị cũ y hệt fakeRepo.findById trả về
+        } as any);
+        expect(result.entry).toBeTruthy();
+    });
+
+    it('updateEntry: kiểm tra lại unique khi giá trị field ĐỔI, ném lỗi nếu trùng entry khác', async () => {
+        const { service } = makeUniqueFieldService(async (_ct, _key, value, excludeId) => value === 'duong-dan-moi' && excludeId === 'entry-1');
+        await expect(service.updateEntry('entry-1', {
+            data: { duongDan: 'duong-dan-moi' },
+        } as any)).rejects.toThrow(/đã tồn tại/);
+    });
+});

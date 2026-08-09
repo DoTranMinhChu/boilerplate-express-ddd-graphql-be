@@ -105,6 +105,26 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
     }
 
     /**
+     * Có tồn tại entry nào KHÁC (cùng Content Type) đang có `data[fieldKey] === value` không — dùng cho
+     * kiểm tra "unique" của field bất kỳ (mục α design 2026-08-09-block-driven-content-binding-design.md),
+     * KHÔNG riêng cho slug. `excludeId` để loại chính entry đang sửa (không tự báo trùng với chính mình).
+     * Cùng guard SAFE_FIELD_NAME chặn field key độc hại như applyFieldCondition ở trên — `fieldKey` do admin
+     * tự đặt qua Content Type builder, không phải input khách public, nhưng vẫn không nội suy thẳng vào SQL
+     * mà không kiểm tra.
+     */
+    async existsByFieldValue(contentTypeId: string, fieldKey: string, value: string, excludeId?: string): Promise<boolean> {
+        if (!SAFE_FIELD_NAME.test(fieldKey)) {
+            throw new BadRequestException(`Tên field "${fieldKey}" không hợp lệ.`);
+        }
+        const qb = this.repository.createQueryBuilder('e')
+            .where('e."contentTypeId" = :contentTypeId', { contentTypeId })
+            .andWhere(`e.data ->> '${fieldKey}' = :value`, { value });
+        if (excludeId) qb.andWhere('e.id != :excludeId', { excludeId });
+        const count = await qb.getCount();
+        return count > 0;
+    }
+
+    /**
      * Entries CÙNG contentType có `data[fieldKey]` khớp BẤT KỲ giá trị nào trong
      * `values` — dùng cho "nội dung liên quan"/"tham chiếu" (findRelated/findBacklinks).
      * `visibilityExclusions` LUÔN áp (mục 4 design) — tham số bắt buộc (không optional)
