@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { PageResolver } from '../page.resolver';
+import { PageService } from '../../../../application/services/page.service';
 
 /**
  * Test cho `getSitemapUrls` — trước Fix (γ final review) nhánh dùng `findDetailBinding`
@@ -16,8 +17,15 @@ function makeResolver(opts: {
     detailBindings: Record<string, { path: string; paramName: string; fieldKey: string } | null>;
     entriesByContentType: Record<string, any[]>;
     hasColumn?: (key: string) => boolean;
+    // Fix I3 (δ final review): mặc định `resolveSitemapSeo` vẫn là fake mô phỏng (đủ cho các
+    // test resolver hiện có, chỉ verify luồng gọi/lọc của resolver). Khi true, dùng THẲNG
+    // `PageService.resolveSitemapSeo` THẬT (hàm thuần, không đụng DB) để verify hành vi mapping
+    // chạy qua ĐÚNG code path `getSitemapUrls()` — trước Fix I3 hành vi thật của hàm này chưa
+    // từng được test qua code path thật, chỉ có test riêng lẻ (nếu có) hoặc fake mô phỏng.
+    useRealResolveSitemapSeo?: boolean;
 }) {
     const resolver = new PageResolver();
+    const realPageService = new PageService();
 
     const fakePageService = {
         findByCondition: jest.fn(async () => opts.staticPages),
@@ -26,11 +34,13 @@ function makeResolver(opts: {
         // entry.seo trực tiếp. Fake này mô phỏng hành vi fallback page.seo tĩnh (không map field)
         // — đủ cho các test resolver hiện có (test riêng cho logic resolveSitemapSeo nằm ở
         // page.service.test.ts).
-        resolveSitemapSeo: jest.fn((page: any) => ({
-            robotsIndex: page?.seo?.robotsIndex,
-            sitemapPriority: page?.seo?.sitemapPriority,
-            sitemapChangeFreq: page?.seo?.sitemapChangeFreq,
-        })),
+        resolveSitemapSeo: opts.useRealResolveSitemapSeo
+            ? jest.fn((page: any, entryData: any) => realPageService.resolveSitemapSeo(page, entryData))
+            : jest.fn((page: any) => ({
+                robotsIndex: page?.seo?.robotsIndex,
+                sitemapPriority: page?.seo?.sitemapPriority,
+                sitemapChangeFreq: page?.seo?.sitemapChangeFreq,
+            })),
     };
     const fakeContentTypeService = {
         findByCondition: jest.fn(async () => opts.contentTypes),
@@ -106,5 +116,55 @@ describe('PageResolver.getSitemapUrls', () => {
         });
         const urls = await resolver.getSitemapUrls();
         expect(urls).toEqual([]);
+    });
+
+    it('Fix I3 (δ final review): dùng PageService.resolveSitemapSeo THẬT — entry map robotsIndex tới field false -> URL entry đó KHÔNG xuất hiện, entry khác vẫn hiện', async () => {
+        const detailPage = {
+            id: 'p-detail',
+            path: '/san-pham/:slug',
+            updatedAt: new Date(),
+            seo: { robotsIndex: true },
+            seoFieldMapping: { robotsIndex: 'anHienTrang' },
+        };
+        const { resolver } = makeResolver({
+            staticPages: [detailPage],
+            contentTypes: [{ id: 'ct-1' }],
+            detailBindings: { 'ct-1': { path: '/san-pham/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            entriesByContentType: {
+                'ct-1': [
+                    { id: 'e-a', data: { slug: 'san-pham-a', anHienTrang: false }, updatedAt: new Date(), seo: {} },
+                    { id: 'e-b', data: { slug: 'san-pham-b', anHienTrang: true }, updatedAt: new Date(), seo: {} },
+                ],
+            },
+            useRealResolveSitemapSeo: true,
+        });
+
+        const urls = await resolver.getSitemapUrls();
+        expect(urls.find((u) => u.path === '/san-pham/san-pham-a')).toBeUndefined();
+        expect(urls).toContainEqual(expect.objectContaining({ path: '/san-pham/san-pham-b' }));
+    });
+
+    it('Fix I3 (δ final review): dùng PageService.resolveSitemapSeo THẬT — entry map sitemapPriority tới field number -> priority trả về LẤY TỪ ENTRY, không phải giá trị tĩnh', async () => {
+        const detailPage = {
+            id: 'p-detail',
+            path: '/tin-tuc/:slug',
+            updatedAt: new Date(),
+            seo: { sitemapPriority: 0.5 },
+            seoFieldMapping: { sitemapPriority: 'doUuTien' },
+        };
+        const { resolver } = makeResolver({
+            staticPages: [detailPage],
+            contentTypes: [{ id: 'ct-1' }],
+            detailBindings: { 'ct-1': { path: '/tin-tuc/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            entriesByContentType: {
+                'ct-1': [
+                    { id: 'e-a', data: { slug: 'bai-a', doUuTien: 0.9 }, updatedAt: new Date(), seo: {} },
+                ],
+            },
+            useRealResolveSitemapSeo: true,
+        });
+
+        const urls = await resolver.getSitemapUrls();
+        expect(urls).toContainEqual(expect.objectContaining({ path: '/tin-tuc/bai-a', priority: 0.9 }));
     });
 });
