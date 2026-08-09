@@ -139,4 +139,33 @@ export class PageService extends BaseService<PageEntity> {
         if (!first) return null;
         return { path: first.page.path, paramName: first.paramName, fieldKey: first.field };
     }
+
+    /**
+     * Resolve 3 field SEO liên quan sitemap (`robotsIndex`/`sitemapPriority`/`sitemapChangeFreq`)
+     * cho 1 ContentEntry đang hiển thị ở trang Chi tiết `page` (mục δ design
+     * 2026-08-09-block-driven-content-binding-design.md) — thay cho `entry.seo` đã xoá (mục δ Task
+     * 3). Hàm THUẦN (không query DB) để test trực tiếp không cần fake repository. Không có
+     * `seoFieldMapping[key]` HOẶC field đích rỗng/không hợp lệ -> fallback `page.seo[key]` tĩnh
+     * (đúng hành vi chung của mục δ: mapping chỉ override khi CÓ giá trị dùng được).
+     */
+    resolveSitemapSeo(page: PageEntity, entryData?: Record<string, any>): { robotsIndex?: boolean; sitemapPriority?: number; sitemapChangeFreq?: string } {
+        const mapping = page.seoFieldMapping || {};
+        const pickRaw = (key: 'robotsIndex' | 'sitemapPriority' | 'sitemapChangeFreq'): unknown => {
+            const fieldKey = mapping[key];
+            if (!fieldKey || !entryData) return undefined;
+            const raw = entryData[fieldKey];
+            return raw === undefined || raw === null || raw === '' ? undefined : raw;
+        };
+
+        const robotsRaw = pickRaw('robotsIndex');
+        const priorityRaw = pickRaw('sitemapPriority');
+        const priorityNum = priorityRaw === undefined ? undefined : Number(priorityRaw);
+        const freqRaw = pickRaw('sitemapChangeFreq');
+
+        return {
+            robotsIndex: robotsRaw !== undefined ? Boolean(robotsRaw) : (page.seo?.robotsIndex as boolean | undefined),
+            sitemapPriority: priorityRaw !== undefined && !Number.isNaN(priorityNum) ? priorityNum : (page.seo?.sitemapPriority as number | undefined),
+            sitemapChangeFreq: freqRaw !== undefined ? String(freqRaw) : (page.seo?.sitemapChangeFreq as string | undefined),
+        };
+    }
 }

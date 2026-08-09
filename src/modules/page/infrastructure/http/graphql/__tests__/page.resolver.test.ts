@@ -22,6 +22,15 @@ function makeResolver(opts: {
     const fakePageService = {
         findByCondition: jest.fn(async () => opts.staticPages),
         findDetailBinding: jest.fn(async (contentTypeId: string) => opts.detailBindings[contentTypeId] ?? null),
+        // Mục δ Task 2: getSitemapUrls giờ gọi PageService.resolveSitemapSeo thay vì đọc
+        // entry.seo trực tiếp. Fake này mô phỏng hành vi fallback page.seo tĩnh (không map field)
+        // — đủ cho các test resolver hiện có (test riêng cho logic resolveSitemapSeo nằm ở
+        // page.service.test.ts).
+        resolveSitemapSeo: jest.fn((page: any) => ({
+            robotsIndex: page?.seo?.robotsIndex,
+            sitemapPriority: page?.seo?.sitemapPriority,
+            sitemapChangeFreq: page?.seo?.sitemapChangeFreq,
+        })),
     };
     const fakeContentTypeService = {
         findByCondition: jest.fn(async () => opts.contentTypes),

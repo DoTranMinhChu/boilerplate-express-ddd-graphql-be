@@ -214,7 +214,6 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 filters: [],
             });
             for (const entry of entries) {
-                if (entry.seo?.robotsIndex === false) continue;
                 // `binding.fieldKey` có thể là 1 cột THẬT trên ContentEntryEntity (vd `slug`,
                 // trước khi γ 3.3 xoá hẳn cột này) chứ không chỉ key trong JSONB `data` — đọc
                 // qua `hasColumn` để nhất quán với cách repository filter builder
@@ -231,11 +230,19 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 // nhận xảy ra thật với content type "QA Repeater Fix (edited)"). Bỏ qua entry
                 // này khỏi sitemap thay vì sinh URL rác.
                 if (fieldValue == null || fieldValue === '') continue;
+
+                // Mục δ: entry.seo đã xoá (Task 3) — robotsIndex/sitemapPriority/sitemapChangeFreq
+                // hiệu lực giờ resolve qua Page.seoFieldMapping (PageService.resolveSitemapSeo), map
+                // tới field của CHÍNH entry này, fallback page.seo tĩnh nếu không map hoặc field rỗng.
+                if (!boundPage) continue;
+                const effectiveSeo = this.pageService.resolveSitemapSeo(boundPage, entry.data);
+                if (effectiveSeo.robotsIndex === false) continue;
+
                 urls.push({
                     path: binding.path.replace(':' + binding.paramName, String(fieldValue)),
                     updatedAt: entry.updatedAt,
-                    priority: entry.seo?.sitemapPriority ?? boundPage?.seo?.sitemapPriority,
-                    changeFreq: entry.seo?.sitemapChangeFreq ?? boundPage?.seo?.sitemapChangeFreq,
+                    priority: effectiveSeo.sitemapPriority,
+                    changeFreq: effectiveSeo.sitemapChangeFreq,
                 });
             }
         }

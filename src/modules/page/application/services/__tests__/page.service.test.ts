@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { PageService } from '../page.service';
+import { PageEntity } from '../../../domain/entities/page.entity';
 
 function makePage(overrides: Partial<any> = {}) {
     return { id: 'page-1', path: '/tin-tuc/:slug', status: 'PUBLISHED', createdAt: new Date('2026-01-01'), ...overrides };
@@ -56,5 +57,52 @@ describe('PageService.findDetailBinding', () => {
         const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
         const result = await service.findDetailBinding('ct-nonexistent');
         expect(result).toBeNull();
+    });
+});
+
+describe('PageService.resolveSitemapSeo', () => {
+    const service = new PageService();
+
+    function makePage(seo: Record<string, any>, seoFieldMapping?: Record<string, string>): PageEntity {
+        return { seo, seoFieldMapping } as PageEntity;
+    }
+
+    it('không có seoFieldMapping -> dùng nguyên page.seo tĩnh', () => {
+        const page = makePage({ robotsIndex: true, sitemapPriority: 0.5, sitemapChangeFreq: 'weekly' });
+        const result = service.resolveSitemapSeo(page, { tieuDe: 'Bài viết' });
+        expect(result).toEqual({ robotsIndex: true, sitemapPriority: 0.5, sitemapChangeFreq: 'weekly' });
+    });
+
+    it('có mapping + entryData có giá trị -> dùng giá trị field, ép kiểu đúng', () => {
+        const page = makePage(
+            { robotsIndex: true, sitemapPriority: 0.5, sitemapChangeFreq: 'weekly' },
+            { robotsIndex: 'anHien', sitemapPriority: 'doUuTien', sitemapChangeFreq: 'tanSuat' },
+        );
+        const result = service.resolveSitemapSeo(page, { anHien: false, doUuTien: '0.9', tanSuat: 'daily' });
+        expect(result).toEqual({ robotsIndex: false, sitemapPriority: 0.9, sitemapChangeFreq: 'daily' });
+    });
+
+    it('có mapping nhưng field đích rỗng/undefined -> fallback page.seo tĩnh', () => {
+        const page = makePage(
+            { robotsIndex: true, sitemapPriority: 0.5, sitemapChangeFreq: 'weekly' },
+            { robotsIndex: 'anHien' },
+        );
+        const result = service.resolveSitemapSeo(page, { anHien: undefined });
+        expect(result.robotsIndex).toBe(true);
+    });
+
+    it('có mapping nhưng KHÔNG có entryData (trang tĩnh) -> fallback page.seo tĩnh, không lỗi', () => {
+        const page = makePage({ robotsIndex: false }, { robotsIndex: 'anHien' });
+        const result = service.resolveSitemapSeo(page, undefined);
+        expect(result.robotsIndex).toBe(false);
+    });
+
+    it('sitemapPriority map tới field không phải số -> bỏ qua giá trị field, fallback tĩnh', () => {
+        const page = makePage(
+            { sitemapPriority: 0.5 },
+            { sitemapPriority: 'doUuTien' },
+        );
+        const result = service.resolveSitemapSeo(page, { doUuTien: 'không phải số' });
+        expect(result.sitemapPriority).toBe(0.5);
     });
 });
