@@ -136,3 +136,43 @@ describe('ContentEntryService — Content Visibility Rules (luôn áp dụng, kh
         expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
     });
 });
+
+describe('ContentEntryService.validateData — validate rule + TAXONOMY', () => {
+    function makeValidateService(fields: any[]) {
+        const fakeContentTypeService = { findById: jest.fn(async () => ({ id: 'ct-1', fields })) };
+        const fakeRepo = { findOneByCondition: jest.fn(async () => null), create: jest.fn(async (d: any) => ({ id: 'e1', ...d })) };
+        return new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
+    }
+
+    it('từ chối chuỗi ngắn hơn minLength', async () => {
+        const service = makeValidateService([{ key: 'title', label: 'T', type: 'TEXT', minLength: 5 }]);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { title: 'ab' } } as any)).rejects.toThrow(/ít nhất 5/);
+    });
+
+    it('từ chối chuỗi không khớp pattern', async () => {
+        const service = makeValidateService([{ key: 'phone', label: 'P', type: 'TEXT', pattern: '^[0-9]{10}$' }]);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { phone: 'abc' } } as any)).rejects.toThrow(/định dạng/);
+    });
+
+    it('chấp nhận chuỗi khớp pattern', async () => {
+        const service = makeValidateService([{ key: 'phone', label: 'P', type: 'TEXT', pattern: '^[0-9]{10}$' }]);
+        const result = await service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { phone: '0912345678' } } as any);
+        expect(result).toBeTruthy();
+    });
+
+    it('không crash khi admin cấu hình pattern sai cú pháp regex', async () => {
+        const service = makeValidateService([{ key: 'x', label: 'X', type: 'TEXT', pattern: '[' }]);
+        const result = await service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { x: 'bất kỳ' } } as any);
+        expect(result).toBeTruthy();
+    });
+
+    it('từ chối số ngoài khoảng min/max', async () => {
+        const service = makeValidateService([{ key: 'age', label: 'A', type: 'NUMBER', min: 18, max: 65 }]);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { age: 10 } } as any)).rejects.toThrow(/≥ 18/);
+    });
+
+    it('TAXONOMY nhiều giá trị phải là mảng', async () => {
+        const service = makeValidateService([{ key: 'cats', label: 'C', type: 'TAXONOMY', taxonomyMultiple: true }]);
+        await expect(service.createEntry({ contentTypeId: 'ct-1', slug: 's1', data: { cats: 'not-array' } } as any)).rejects.toThrow(/danh sách/);
+    });
+});

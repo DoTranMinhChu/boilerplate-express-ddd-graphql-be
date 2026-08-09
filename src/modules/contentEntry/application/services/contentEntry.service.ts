@@ -28,6 +28,33 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             switch (f.type) {
                 case EFieldType.NUMBER:
                     if (typeof value !== 'number') throw new BadRequestException(`Field "${f.key}" phải là số.`);
+                    if (f.min !== undefined && value < f.min) throw new BadRequestException(`Field "${f.key}" phải ≥ ${f.min}.`);
+                    if (f.max !== undefined && value > f.max) throw new BadRequestException(`Field "${f.key}" phải ≤ ${f.max}.`);
+                    break;
+                case EFieldType.TEXT:
+                case EFieldType.RICHTEXT:
+                    if (typeof value !== 'string') break; // đã có check required ở trên, giá trị sai kiểu cơ bản bỏ qua thay vì throw (nhất quán với các case khác không throw khi value không phải string)
+                    if (f.minLength !== undefined && value.length < f.minLength) {
+                        throw new BadRequestException(`Field "${f.key}" phải có ít nhất ${f.minLength} ký tự.`);
+                    }
+                    if (f.maxLength !== undefined && value.length > f.maxLength) {
+                        throw new BadRequestException(`Field "${f.key}" không được vượt quá ${f.maxLength} ký tự.`);
+                    }
+                    if (f.pattern) {
+                        try {
+                            if (!new RegExp(f.pattern).test(value)) {
+                                throw new BadRequestException(`Field "${f.key}" không đúng định dạng yêu cầu.`);
+                            }
+                        } catch (err) {
+                            if (err instanceof BadRequestException) throw err;
+                            // regex admin gõ sai cú pháp -> bỏ qua rule này thay vì crash cả app khi lưu dữ liệu
+                        }
+                    }
+                    break;
+                case EFieldType.TAXONOMY:
+                    if (f.taxonomyMultiple && !Array.isArray(value)) {
+                        throw new BadRequestException(`Field "${f.key}" (chọn nhiều) phải là danh sách id.`);
+                    }
                     break;
                 case EFieldType.BOOLEAN:
                     if (typeof value !== 'boolean') throw new BadRequestException(`Field "${f.key}" phải là boolean.`);
