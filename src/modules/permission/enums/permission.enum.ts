@@ -78,6 +78,9 @@ export enum EPermission {
     // ─── CMS: dynamic Object Type (Content Type builder) ─────────────────────
     CONTENT_TYPE_MANAGE = 'CONTENT_TYPE_MANAGE',
 
+    // ─── CMS: Taxonomy (danh mục/thẻ dùng chung) ─────────────────────────────
+    TAXONOMY_MANAGE = 'TAXONOMY_MANAGE',
+
     // ─── CMS: Content Entry (dữ liệu thực của 1 Content Type) ────────────────
     CONTENT_ENTRY_VIEW = 'CONTENT_ENTRY_VIEW',
     CONTENT_ENTRY_CREATE = 'CONTENT_ENTRY_CREATE',
@@ -154,6 +157,8 @@ export const PERMISSION_META: Record<EPermission, IPermissionMeta> = {
     [EPermission.SECTION_MANAGE]: { label: 'Manage page sections', resourceGroup: 'page' },
 
     [EPermission.CONTENT_TYPE_MANAGE]: { label: 'Manage content types (Object Type builder)', resourceGroup: 'contentType' },
+
+    [EPermission.TAXONOMY_MANAGE]: { label: 'Manage taxonomies (categories/tags)', resourceGroup: 'taxonomy' },
 
     [EPermission.CONTENT_ENTRY_VIEW]: { label: 'View content entries', resourceGroup: 'contentEntry' },
     [EPermission.CONTENT_ENTRY_CREATE]: { label: 'Create content entry', resourceGroup: 'contentEntry' },
@@ -232,6 +237,10 @@ export const PERMISSION_GROUPS: IPermissionGroup[] = [
     {
         key: 'contentType', label: 'Content Types', description: 'Define custom Object Types and their fields',
         permissions: [EPermission.CONTENT_TYPE_MANAGE],
+    },
+    {
+        key: 'taxonomy', label: 'Taxonomies', description: 'Manage shared categories/tags',
+        permissions: [EPermission.TAXONOMY_MANAGE],
     },
     {
         key: 'contentEntry', label: 'Content Entries', description: 'Manage data entries of any content type',
