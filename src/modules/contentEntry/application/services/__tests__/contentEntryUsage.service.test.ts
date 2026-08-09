@@ -12,12 +12,15 @@ interface Setup {
     pages: any[];
     sections: any[];
     findPublicListResult?: any[];
+    /** Kết quả `PageService.findDetailBinding` giả lập — dùng cho nhánh 'content-detail'. */
+    detailBinding?: { path: string; paramName: string; fieldKey: string } | null;
 }
 
 function makeService(setup: Setup) {
     const fakeContentEntryRepository = {
         findById: jest.fn(async () => setup.entry ?? null),
         findPublicList: jest.fn(async () => setup.findPublicListResult ?? []),
+        hasColumn: jest.fn(() => false),
     };
     // findByCondition mimics the real DB behaviour driven by `pageId: In([...])`
     // for sections, so "section on an unpublished page never appears" is exercised
@@ -34,16 +37,20 @@ function makeService(setup: Setup) {
     const fakeContentTypeService = {
         findById: jest.fn(async () => CONTENT_TYPE),
     };
+    const fakePageService = {
+        findDetailBinding: jest.fn(async () => setup.detailBinding ?? null),
+    };
     const service = new ContentEntryUsageService(
         fakeContentEntryRepository as any,
         fakePageRepository as any,
         fakeSectionRepository as any,
         fakeContentTypeService as any,
+        fakePageService as any,
     );
-    return { service, fakeContentEntryRepository, fakePageRepository, fakeSectionRepository, fakeContentTypeService };
+    return { service, fakeContentEntryRepository, fakePageRepository, fakeSectionRepository, fakeContentTypeService, fakePageService };
 }
 
-const ENTRY = { id: 'entry-1', contentTypeId: 'ct-1', slug: 'bai-viet-a' };
+const ENTRY = { id: 'entry-1', contentTypeId: 'ct-1', slug: 'bai-viet-a', data: { slug: 'bai-viet-a' } };
 
 // Trang Chi tiết kiểu β (mục γ): pageType luôn STATIC_MODULAR, path có tham số động;
 // "là trang Chi tiết" được quyết bởi Block CONTENT_DETAIL, không còn bởi pageType.
@@ -218,6 +225,62 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         const { service } = makeService({ entry: ENTRY, pages: [publishedPage], sections: [draftSection] });
         const result = await service.findUsageLocations('entry-1');
         expect(result.find((r) => r.sectionId === 'sec-draft')).toBeUndefined();
+    });
+
+    it('Block CONTENT_DETAIL khớp đúng content type entry, entry hiển thị công khai thật -> matchKind detail, url build từ findDetailBinding', async () => {
+        const section = {
+            id: 'sec-detail', pageId: 'page-detail', type: 'content-detail', enabled: true,
+            dataSource: { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+        };
+        const { service, fakePageService } = makeService({
+            entry: ENTRY,
+            pages: [DETAIL_PAGE],
+            sections: [section],
+            findPublicListResult: [{ id: 'entry-1' }],
+            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+        });
+        const result = await service.findUsageLocations('entry-1');
+        expect(result).toContainEqual({
+            pageId: 'page-detail', pageLabel: 'Trang Chi tiết Bài viết', pagePath: '/bai-viet/:slug',
+            sectionId: 'sec-detail', sectionType: 'content-detail', matchKind: 'detail', url: '/bai-viet/bai-viet-a',
+        });
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1');
+    });
+
+    it('Block CONTENT_DETAIL khớp đúng content type entry nhưng entry KHÔNG hiển thị công khai (Content Visibility Rule ẩn) -> matchKind detail-not-visible, không có url', async () => {
+        const section = {
+            id: 'sec-detail', pageId: 'page-detail', type: 'content-detail', enabled: true,
+            dataSource: { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+        };
+        const { service } = makeService({
+            entry: ENTRY,
+            pages: [DETAIL_PAGE],
+            sections: [section],
+            findPublicListResult: [], // findPublicList trả [] -> entry không hiển thị công khai
+            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+        });
+        const result = await service.findUsageLocations('entry-1');
+        expect(result).toContainEqual({
+            pageId: 'page-detail', pageLabel: 'Trang Chi tiết Bài viết', pagePath: '/bai-viet/:slug',
+            sectionId: 'sec-detail', sectionType: 'content-detail', matchKind: 'detail-not-visible', url: undefined,
+        });
+    });
+
+    it('Block CONTENT_DETAIL khớp entry hiển thị công khai nhưng fieldValue rỗng (Fix Important #1) -> matchKind detail, KHÔNG có url', async () => {
+        const section = {
+            id: 'sec-detail', pageId: 'page-detail', type: 'content-detail', enabled: true,
+            dataSource: { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+        };
+        const entryWithEmptySlug = { id: 'entry-1', contentTypeId: 'ct-1', data: { slug: '' } };
+        const { service } = makeService({
+            entry: entryWithEmptySlug,
+            pages: [DETAIL_PAGE],
+            sections: [section],
+            findPublicListResult: [{ id: 'entry-1' }],
+            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+        });
+        const result = await service.findUsageLocations('entry-1');
+        expect(result).toContainEqual(expect.objectContaining({ sectionId: 'sec-detail', matchKind: 'detail', url: undefined }));
     });
 
     it('section disabled không được section repository trả về (đã lọc bằng where.enabled ở tầng thật) -> không ảnh hưởng kết quả', async () => {
