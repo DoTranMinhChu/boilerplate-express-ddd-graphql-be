@@ -1,8 +1,11 @@
 // src/core/shared/dto/seo.dto.ts
 //
-// SEO block dùng chung cho Page và ContentEntry (mục 12 spec CMS). Lưu dưới dạng
-// 1 cột jsonb duy nhất trên entity sở hữu (không phải bảng riêng) — mọi field
-// optional, phần thiếu được FE/BE fallback theo template mặc định lúc render.
+// SEO block (mục 12 spec CMS). Kể từ mục δ chỉ còn thuộc Page — ContentEntry.seo đã bị
+// xoá hẳn (δ Task 3); SEO hiệu lực cho 1 entry (trang Chi tiết) được resolve bằng cách map
+// từ dữ liệu entry qua `Page.seoFieldMapping` (xem PageService.resolveSitemapSeo /
+// resolveSeoFieldMapping phía FE). Lưu dưới dạng 1 cột jsonb duy nhất trên Page (không phải
+// bảng riêng) — mọi field optional, phần thiếu được FE/BE fallback theo template mặc định
+// lúc render.
 
 import { ObjectType, InputType, Field } from '@/core/shared/decorators/graphQL.decorators';
 import { GraphQLMixed } from '@/core/shared/graphql/scalars';
