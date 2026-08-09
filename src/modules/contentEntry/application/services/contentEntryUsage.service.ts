@@ -107,6 +107,14 @@ export class ContentEntryUsageService {
             // giữ nguyên matchKind — giống hệt hành vi hiện tại khi không suy được URL.
             if (section.type === 'content-detail' && ds.mode === 'detail' && ds.query?.contentTypeId === entry.contentTypeId) {
                 const binding = await this.pageService.findDetailBinding(entry.contentTypeId);
+                // Fix (γ final review, Important #1): field feed-URL của binding không
+                // `required` — entry có thể lưu field này rỗng. Trong trường hợp đó KHÔNG build
+                // `url` (thay vì để `String(undefined)` sinh ra 1 "vị trí sử dụng" trỏ tới URL
+                // rác kiểu ".../undefined" trong usage panel của admin).
+                const rawFieldValue = binding
+                    ? readEntryFieldValue(entry, binding.fieldKey, (k) => this.contentEntryRepository.hasColumn(k))
+                    : undefined;
+                const hasUsableFieldValue = rawFieldValue != null && rawFieldValue !== '';
                 results.push({
                     pageId: page.id,
                     pageLabel: page.internalName,
@@ -114,8 +122,8 @@ export class ContentEntryUsageService {
                     sectionId: section.id,
                     sectionType: section.type,
                     matchKind: isPubliclyVisible ? 'detail' : 'detail-not-visible',
-                    url: isPubliclyVisible && binding
-                        ? binding.path.replace(':' + binding.paramName, String(readEntryFieldValue(entry, binding.fieldKey, (k) => this.contentEntryRepository.hasColumn(k))))
+                    url: isPubliclyVisible && binding && hasUsableFieldValue
+                        ? binding.path.replace(':' + binding.paramName, String(rawFieldValue))
                         : undefined,
                 });
                 continue;

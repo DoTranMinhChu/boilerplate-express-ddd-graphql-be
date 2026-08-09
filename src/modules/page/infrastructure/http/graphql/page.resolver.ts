@@ -218,6 +218,12 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 const fieldValue = this.contentEntryService.hasColumn(binding.fieldKey)
                     ? (entry as any)[binding.fieldKey]
                     : entry.data?.[binding.fieldKey];
+                // Fix (γ final review, Important #1): field feed-URL không `required` — 1 entry
+                // lưu với field này để trống thì `fieldValue` là `null`/`undefined`/`''`.
+                // `String(undefined)` sẽ ghi literal "undefined" thẳng vào URL sitemap (đã xác
+                // nhận xảy ra thật với content type "QA Repeater Fix (edited)"). Bỏ qua entry
+                // này khỏi sitemap thay vì sinh URL rác.
+                if (fieldValue == null || fieldValue === '') continue;
                 urls.push({
                     path: binding.path.replace(':' + binding.paramName, String(fieldValue)),
                     updatedAt: entry.updatedAt,
