@@ -197,8 +197,9 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         // được 1 binding hợp lệ (PageService.findDetailBinding, Task 2), liệt kê TẤT CẢ entry
         // PUBLISHED của content type đó, áp dụng đầy đủ các bước lọc — không bỏ
         // sót: (a) Content Visibility Rules qua findPublicEntries (cùng hàm, cùng cách gọi),
-        // (b) robotsIndex===false ở CẢ entry lẫn trang chứa block (trang chứa block đã có sẵn
-        // trong `staticPages` vì nó cũng phải PUBLISHED để findDetailBinding chọn nó). Bỏ sót
+        // (b) robotsIndex===false hiệu lực PER-ENTRY qua `resolveSitemapSeo` (đã tự fallback
+        // robotsIndex TĨNH của trang chứa block khi entry không map/không có giá trị — xem
+        // Fix I2 δ final review bên dưới, KHÔNG short-circuit ở cấp content-type nữa). Bỏ sót
         // bước lọc này từng là 1 lỗ hổng bảo mật thật (lộ URL entry lẽ ra phải ẩn) đã được vá
         // ở phase trước của γ — xem `.superpowers/sdd/progress.md`.
         const contentTypes = await this.contentTypeService.findByCondition({});
@@ -207,7 +208,14 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
             if (!binding) continue;
 
             const boundPage = staticPages.find((p) => p.path === binding.path);
-            if (boundPage?.seo?.robotsIndex === false) continue;
+            // Fix I2 (δ final review): KHÔNG short-circuit ở đây theo robotsIndex TĨNH của trang —
+            // nếu admin đã cấu hình seoFieldMapping.robotsIndex trỏ tới field boolean của entry
+            // (ý định "ẩn mặc định, entry nào set field đó = true thì hiện riêng"), chặn cứng ở cấp
+            // content-type tại đây sẽ bỏ qua TOÀN BỘ entry trước khi resolveSitemapSeo() có cơ hội
+            // áp mapping. Quyết định đúng đắn được chuyển xuống per-entry bên dưới
+            // (`effectiveSeo.robotsIndex === false`), nơi resolveSitemapSeo() đã tự fallback về
+            // robotsIndex tĩnh của trang khi entry không map/không có giá trị — không mất tính năng
+            // "trang ẩn mặc định".
 
             const entries = await this.contentEntryService.findPublicEntries({
                 contentTypeId: contentType.id,
