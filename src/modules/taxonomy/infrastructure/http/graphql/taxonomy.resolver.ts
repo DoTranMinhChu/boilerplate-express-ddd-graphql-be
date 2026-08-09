@@ -1,5 +1,5 @@
 import { BaseGraphQLResolver } from '@/core/infrastructure/http/baseGraphql.resolver';
-import { GQLAuthorized, Args, Resolver, Mutation, Query, GQLQuery, GQLPublic } from '@/core/shared/decorators/graphQL.decorators';
+import { GQLAuthorized, Args, Resolver, Mutation, Query, GQLQuery } from '@/core/shared/decorators/graphQL.decorators';
 import { GQLPermission } from '@/core/shared/decorators/graphQLPermission.decorator';
 import { GQLPaginationArgs, PaginatedResponse } from '@/core/shared/dto/pagination.dto';
 import { ERole } from '@/core/shared/enums/account.enum';
@@ -23,10 +23,14 @@ export class TaxonomyResolver extends BaseGraphQLResolver<TaxonomyEntity> {
         this.taxonomyService = service;
     }
 
-    // Public: FE cần đọc danh mục/thẻ để hiển thị nhãn trên trang công khai, không cần đăng nhập —
-    // giống getOneContentType hiện có.
+    // Staff-readable (không riêng TAXONOMY_MANAGE) — giống getAllHeaderPresets: biên tập viên
+    // Content Type cần thấy danh sách Taxonomy để gán cho field kiểu TAXONOMY, dù chỉ
+    // TAXONOMY_MANAGE mới được tạo/sửa/xoá Taxonomy. KHÔNG public — khác Term (getAllTerm bên
+    // dưới phải public vì trang công khai SSR resolveTaxonomyDisplays không có phiên đăng nhập),
+    // bản thân danh mục/thẻ (khác nhãn Term thật) không cần lộ cho khách vãng lai; trang công
+    // khai chỉ cần join qua Term, không bao giờ query trực tiếp Taxonomy.
     @Query('getOneTaxonomy', { returnType: TaxonomyEntity })
-    @GQLPublic()
+    @GQLAuthorized(STAFF_ROLES)
     async getOneTaxonomy(
         @Args('id') id: string,
         @GQLQuery() fieldOptions: GqlSelectOptions<TaxonomyEntity>,
@@ -36,7 +40,7 @@ export class TaxonomyResolver extends BaseGraphQLResolver<TaxonomyEntity> {
     }
 
     @Query('getAllTaxonomy', { returnType: TaxonomyPagination })
-    @GQLPublic()
+    @GQLAuthorized(STAFF_ROLES)
     async getAllTaxonomy(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<TaxonomyEntity>,

@@ -23,9 +23,11 @@ export class TermResolver extends BaseGraphQLResolver<TermEntity> {
         this.termService = service;
     }
 
-    // Public: FE cần đọc nhãn Term (danh mục/thẻ) để hiển thị trên trang công khai, không cần đăng nhập.
+    // Staff-only — không có nơi nào trong FE gọi getOneTerm (trang công khai join Term qua
+    // getAllTerm với filter taxonomyId, không tra từng id riêng lẻ), nên không cần public;
+    // thu hẹp bề mặt truy cập ẩn danh không cần thiết (rà soát cuối phase — xem getAllTaxonomy).
     @Query('getOneTerm', { returnType: TermEntity })
-    @GQLPublic()
+    @GQLAuthorized(STAFF_ROLES)
     async getOneTerm(
         @Args('id') id: string,
         @GQLQuery() fieldOptions: GqlSelectOptions<TermEntity>,
