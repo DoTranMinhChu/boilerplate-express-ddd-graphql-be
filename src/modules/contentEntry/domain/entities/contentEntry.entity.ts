@@ -1,7 +1,6 @@
 import { BaseEntity } from '@/core/domain/entities/base.entity';
 import { Entity, Column, Index } from 'typeorm';
 import { ObjectType, Field } from '@/core/shared/decorators/graphQL.decorators';
-import { SeoType } from '@/core/shared/dto/seo.dto';
 import { GraphQLMixed } from '@/core/shared/graphql/scalars';
 import { EPageStatus } from '@/modules/page/application/enums/page.enum';
 
@@ -32,10 +31,6 @@ export class ContentEntryEntity extends BaseEntity {
     @Field({ type: String, nullable: true })
     @Column({ default: 'vi' })
     locale!: string;
-
-    @Field({ type: SeoType, nullable: true })
-    @Column({ type: 'jsonb', default: {} })
-    seo!: SeoType;
 
     @Field({ type: GraphQLMixed })
     @Column({ type: 'jsonb', default: {} })
