@@ -45,4 +45,12 @@ export class MenuItemEntity extends BaseEntity {
     @Field({ type: String, nullable: true })
     @Column({ nullable: true })
     anchor?: string;
+
+    // Computed, KHÔNG map cột DB (không @Column — DB_SYNCHRONIZE không tạo cột mới cho field
+    // này) — resolve từ `pageId` lúc MenuItemService.findByMenu() query, để FE (SiteHeader/
+    // SiteFooter) build href công khai của targetType=PAGE mà KHÔNG cần gọi thêm `getOnePage`
+    // (query đó yêu cầu quyền staff, không public — không dùng được từ SSR/CSR trang công khai).
+    // Xem MenuItemService.findByMenu cho logic batch-lookup Page theo pageId.
+    @Field({ type: String, nullable: true })
+    pagePath?: string;
 }

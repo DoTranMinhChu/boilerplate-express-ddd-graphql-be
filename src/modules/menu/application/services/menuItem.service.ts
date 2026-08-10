@@ -2,10 +2,17 @@ import { MenuItemEntity } from '../../domain/entities/menuItem.entity';
 import { MenuItemRepository } from '../../infrastructure/persistence/menuItem.repository';
 import { BaseService } from '@/core/application/services/base.service';
 import { ConflictException, NotFoundException, BadRequestException } from '@/core/domain/exceptions/appException';
-import { DeepPartial } from 'typeorm';
+import { DeepPartial, In } from 'typeorm';
+import { PageRepository } from '@/modules/page/infrastructure/persistence/page.repository';
+import { EMenuItemTargetType } from '@/modules/menu/application/enums/menuItem.enum';
 
 export class MenuItemService extends BaseService<MenuItemEntity> {
-    constructor(private readonly menuItemRepository: MenuItemRepository = new MenuItemRepository()) {
+    constructor(
+        private readonly menuItemRepository: MenuItemRepository = new MenuItemRepository(),
+        // Chỉ dùng để batch-resolve `pagePath` (computed field, xem MenuItemEntity) — cross-module
+        // reuse trực tiếp PageRepository, cùng convention ContentEntryUsageService đã dùng.
+        private readonly pageRepository = new PageRepository(),
+    ) {
         super(menuItemRepository, 'MenuItem');
     }
 
@@ -36,7 +43,19 @@ export class MenuItemService extends BaseService<MenuItemEntity> {
     }
 
     async findByMenu(menuId: string): Promise<MenuItemEntity[]> {
-        return this.menuItemRepository.findByCondition({ where: { menuId }, order: { order: 'ASC' } as any });
+        const items = await this.menuItemRepository.findByCondition({ where: { menuId }, order: { order: 'ASC' } as any });
+        // Batch-resolve `pagePath` cho mọi item targetType=PAGE — 1 query duy nhất (không N+1),
+        // tránh FE phải gọi thêm `getOnePage` (staff-only) từng item lúc render Header/Footer
+        // công khai. Bỏ qua item trỏ tới page đã bị xoá/không tồn tại (pagePath giữ undefined).
+        const pageIds = [...new Set(items.filter((i) => i.targetType === EMenuItemTargetType.PAGE && i.pageId).map((i) => i.pageId as string))];
+        if (pageIds.length) {
+            const pages = await this.pageRepository.findByCondition({ where: { id: In(pageIds) } });
+            const pathById = new Map(pages.map((p) => [p.id, p.path]));
+            for (const item of items) {
+                if (item.pageId) item.pagePath = pathById.get(item.pageId);
+            }
+        }
+        return items;
     }
 
     async createMenuItem(input: DeepPartial<MenuItemEntity>): Promise<MenuItemEntity> {
