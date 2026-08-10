@@ -92,4 +92,48 @@ describe('ContentEntryResolver.updateContentEntry', () => {
 
         expect(result).toEqual({ id: 'e1', data: { slug: 'bai-viet-moi' } });
     });
+
+    it('binding N=2 field, CẢ 2 field đổi giá trị -> recordPathChange nhận fromPath/toPath đã thay ĐÚNG cả 2 param', async () => {
+        const { resolver, fakeRedirectService } = makeResolver({
+            updateEntryResult: {
+                entry: { id: 'e1', data: { danhMuc: 'moi', slug: 'slug-moi' } },
+                contentTypeId: 'ct-1',
+                previousData: { danhMuc: 'cu', slug: 'slug-cu' },
+            },
+            detailBinding: {
+                path: '/danh-muc/:danhMuc/:slug',
+                bindings: [
+                    { paramName: 'danhMuc', fieldKey: 'danhMuc' },
+                    { paramName: 'slug', fieldKey: 'slug' },
+                ],
+            },
+        });
+
+        await resolver.updateContentEntry('e1', { data: { danhMuc: 'moi', slug: 'slug-moi' } } as any);
+
+        expect(fakeRedirectService.recordPathChange).toHaveBeenCalledWith('/danh-muc/cu/slug-cu', '/danh-muc/moi/slug-moi');
+    });
+
+    it('binding N=2 field, CHỈ 1 field đổi (field kia giữ nguyên) -> vẫn ghi redirect, path build đúng, field không đổi KHÔNG bị thay nhầm thành rỗng/undefined', async () => {
+        const { resolver, fakeRedirectService } = makeResolver({
+            updateEntryResult: {
+                entry: { id: 'e1', data: { danhMuc: 'muc-a', slug: 'slug-moi' } },
+                contentTypeId: 'ct-1',
+                previousData: { danhMuc: 'muc-a', slug: 'slug-cu' },
+            },
+            detailBinding: {
+                path: '/danh-muc/:danhMuc/:slug',
+                bindings: [
+                    { paramName: 'danhMuc', fieldKey: 'danhMuc' },
+                    { paramName: 'slug', fieldKey: 'slug' },
+                ],
+            },
+        });
+
+        await resolver.updateContentEntry('e1', { data: { slug: 'slug-moi' } } as any);
+
+        // field "danhMuc" không đổi giá trị nhưng VẪN phải xuất hiện đúng ('muc-a') ở cả 2 path,
+        // không bị .reduce() thay nhầm thành rỗng/undefined khi oldValue === newValue.
+        expect(fakeRedirectService.recordPathChange).toHaveBeenCalledWith('/danh-muc/muc-a/slug-cu', '/danh-muc/muc-a/slug-moi');
+    });
 });
