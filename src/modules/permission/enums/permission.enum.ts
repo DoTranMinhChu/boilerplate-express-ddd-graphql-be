@@ -92,6 +92,9 @@ export enum EPermission {
 
     // ─── CMS: Menu / navigation ───────────────────────────────────────────────
     MENU_MANAGE = 'MENU_MANAGE',
+
+    // ─── Site settings: đa ngôn ngữ (SiteLocaleSettings singleton) ───────────
+    SITE_LOCALE_SETTINGS_MANAGE = 'SITE_LOCALE_SETTINGS_MANAGE',
 }
 
 RegisterEnum(EPermission, 'EPermission');
@@ -168,6 +171,8 @@ export const PERMISSION_META: Record<EPermission, IPermissionMeta> = {
     [EPermission.REDIRECT_MANAGE]: { label: 'Manage URL redirects', resourceGroup: 'redirect' },
 
     [EPermission.MENU_MANAGE]: { label: 'Manage navigation menus', resourceGroup: 'menu' },
+
+    [EPermission.SITE_LOCALE_SETTINGS_MANAGE]: { label: 'Manage site locale settings (i18n)', resourceGroup: 'siteLocaleSettings' },
 };
 
 // ─── Permission Groups for the account-permission UI ──────────────────────────
@@ -256,5 +261,9 @@ export const PERMISSION_GROUPS: IPermissionGroup[] = [
     {
         key: 'menu', label: 'Menus', description: 'Manage navigation menus',
         permissions: [EPermission.MENU_MANAGE],
+    },
+    {
+        key: 'siteLocaleSettings', label: 'Site locale settings', description: 'Manage supported locales & default locale (i18n)',
+        permissions: [EPermission.SITE_LOCALE_SETTINGS_MANAGE],
     },
 ];
