@@ -10,6 +10,7 @@ export class CreateFooterPresetInput {
     @Field({ type: String, nullable: true }) footerHeading?: string;
     @Field({ type: String, nullable: true }) footerEmail?: string;
     @Field({ type: GraphQLMixed, nullable: true }) footerColumns?: { title: string; lines: string[] }[];
+    @Field({ type: String, nullable: true }) footerMenuId?: string;
     @Field({ type: String, nullable: true }) footerOutlineText?: string;
     @Field({ type: GraphQLMixed, nullable: true }) animation?: any[];
 }
@@ -23,6 +24,7 @@ export class UpdateFooterPresetInput {
     @Field({ type: String, nullable: true }) footerHeading?: string;
     @Field({ type: String, nullable: true }) footerEmail?: string;
     @Field({ type: GraphQLMixed, nullable: true }) footerColumns?: { title: string; lines: string[] }[];
+    @Field({ type: String, nullable: true }) footerMenuId?: string;
     @Field({ type: String, nullable: true }) footerOutlineText?: string;
     @Field({ type: GraphQLMixed, nullable: true }) animation?: any[];
 }

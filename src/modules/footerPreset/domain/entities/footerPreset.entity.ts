@@ -48,6 +48,13 @@ export class FooterPresetEntity extends BaseEntity {
     @Column({ type: 'jsonb', default: [] })
     footerColumns?: { title: string; lines: string[] }[];
 
+    // Menu-driven footer nav — cùng lý do với HeaderPresetEntity.headerMenuId: khi có giá trị,
+    // FE render nav từ cây MenuItem thay cho footerColumns tĩnh (giữ song song để không phá
+    // preset cũ chưa gán Menu).
+    @Field({ type: String, nullable: true })
+    @Column({ nullable: true })
+    footerMenuId?: string;
+
     @Field({ type: String, nullable: true })
     @Column({ type: 'text', nullable: true })
     footerOutlineText?: string;

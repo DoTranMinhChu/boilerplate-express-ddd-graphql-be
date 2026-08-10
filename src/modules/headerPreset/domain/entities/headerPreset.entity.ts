@@ -33,6 +33,13 @@ export class HeaderPresetEntity extends BaseEntity {
     @Column({ type: 'jsonb', default: [] })
     navLinks?: { label: string; href: string }[];
 
+    // Menu-driven header nav — khi có giá trị, FE render nav từ cây MenuItem
+    // (getMenuItemsByMenu) thay cho navLinks tĩnh phía trên. Cả 2 field giữ song song để
+    // không phá vỡ preset cũ chưa gán Menu (chốt ở design mục 4).
+    @Field({ type: String, nullable: true })
+    @Column({ nullable: true })
+    headerMenuId?: string;
+
     @Field({ type: GraphQLMixed, nullable: true })
     @Column({ type: 'jsonb', default: [] })
     animation?: any[];

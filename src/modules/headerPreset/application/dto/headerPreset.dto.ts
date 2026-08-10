@@ -6,6 +6,7 @@ export class CreateHeaderPresetInput {
     @Field({ type: String }) name!: string;
     @Field({ type: String, nullable: true }) logoText?: string;
     @Field({ type: GraphQLMixed, nullable: true }) navLinks?: { label: string; href: string }[];
+    @Field({ type: String, nullable: true }) headerMenuId?: string;
     @Field({ type: GraphQLMixed, nullable: true }) animation?: any[];
 }
 
@@ -14,5 +15,6 @@ export class UpdateHeaderPresetInput {
     @Field({ type: String, nullable: true }) name?: string;
     @Field({ type: String, nullable: true }) logoText?: string;
     @Field({ type: GraphQLMixed, nullable: true }) navLinks?: { label: string; href: string }[];
+    @Field({ type: String, nullable: true }) headerMenuId?: string;
     @Field({ type: GraphQLMixed, nullable: true }) animation?: any[];
 }
