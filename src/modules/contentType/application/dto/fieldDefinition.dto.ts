@@ -51,6 +51,13 @@ export class FieldDefinitionType {
      * khi thu gọn 1 mục Repeater (xem thiết kế mục D.1). Không có ý nghĩa ở field cấp cao nhất. */
     @Field({ type: Boolean, nullable: true }) isRepeaterTitleSource?: boolean;
 
+    /** Chỉ dùng khi type === REPEATER — kiểu hiển thị trên trang công khai (mục E.2 thiết
+     * kế). `list` (mặc định, không set) = thẻ viền xếp dọc (hành vi hiện có). `cards` = lưới
+     * 2-3 cột. `accordion` = mỗi item 1 dòng tiêu đề bấm mở/đóng (dùng field đánh dấu
+     * `isRepeaterTitleSource` của itemFields làm tiêu đề). Validate giá trị hợp lệ ở tầng FE
+     * (Select có options cố định) — BE lưu tự do như mọi field JSONB khác của `fields`. */
+    @Field({ type: String, nullable: true }) displayVariant?: 'list' | 'cards' | 'accordion';
+
     /** Chỉ dùng khi type === REPEATER — mô tả cấu trúc của MỖI item trong danh
      * sách lặp lại (vd FAQ: {question, answer}). Thunk `() => [...]` — cùng
      * khuôn tự-tham-chiếu đã dùng cho `ScopeRule.rules` (scope.types.ts:136),
