@@ -101,20 +101,25 @@ export class ContentEntryUsageService {
             // kiểu 'content-detail', dataSource.mode === 'detail', và contentTypeId
             // khớp đúng content type của entry đang tra cứu. `url` build lại qua
             // PageService.findDetailBinding (Task 2) — CÙNG công thức chuẩn xuyên suốt
-            // γ (binding.path.replace(':'+paramName, entry.data[fieldKey])), không tự
-            // chế cách khác. Nếu findDetailBinding không suy ngược được (null — vd block
-            // có nhiều hơn 1 filter, hoặc filter không phải pathParam đơn), bỏ qua url,
-            // giữ nguyên matchKind — giống hệt hành vi hiện tại khi không suy được URL.
+            // γ (lặp qua binding.bindings, path.replace(':'+paramName, value) tuần tự — Phase 3
+            // mục 2 mở rộng từ 1 điều kiện sang N điều kiện field=pathParam), không tự chế cách
+            // khác. Nếu findDetailBinding không suy ngược được (null — vd có filter không phải
+            // pathParam trộn lẫn), bỏ qua url, giữ nguyên matchKind — giống hệt hành vi hiện tại
+            // khi không suy được URL.
             if (section.type === 'content-detail' && ds.mode === 'detail' && ds.query?.contentTypeId === entry.contentTypeId) {
                 const binding = await this.pageService.findDetailBinding(entry.contentTypeId);
-                // Fix (γ final review, Important #1): field feed-URL của binding không
-                // `required` — entry có thể lưu field này rỗng. Trong trường hợp đó KHÔNG build
-                // `url` (thay vì để `String(undefined)` sinh ra 1 "vị trí sử dụng" trỏ tới URL
-                // rác kiểu ".../undefined" trong usage panel của admin).
-                const rawFieldValue = binding
-                    ? readEntryFieldValue(entry, binding.fieldKey, (k) => this.contentEntryRepository.hasColumn(k))
+                // Fix (γ final review, Important #1), mở rộng cho N điều kiện (Phase 3 mục 2):
+                // MỖI field feed-URL của binding không `required` — entry có thể lưu BẤT KỲ field
+                // nào trong số này rỗng. Thiếu 1 trong N -> KHÔNG build `url` (thay vì để
+                // `String(undefined)` sinh ra 1 "vị trí sử dụng" trỏ tới URL rác kiểu
+                // ".../undefined" trong usage panel của admin).
+                const fieldValues = binding
+                    ? binding.bindings.map((b) => ({ ...b, value: readEntryFieldValue(entry, b.fieldKey, (k) => this.contentEntryRepository.hasColumn(k)) }))
+                    : [];
+                const hasUsableFieldValues = fieldValues.length > 0 && fieldValues.every((fv) => fv.value != null && fv.value !== '');
+                const url = isPubliclyVisible && binding && hasUsableFieldValues
+                    ? fieldValues.reduce((p, fv) => p.replace(':' + fv.paramName, String(fv.value)), binding.path)
                     : undefined;
-                const hasUsableFieldValue = rawFieldValue != null && rawFieldValue !== '';
                 results.push({
                     pageId: page.id,
                     pageLabel: page.internalName,
@@ -122,9 +127,7 @@ export class ContentEntryUsageService {
                     sectionId: section.id,
                     sectionType: section.type,
                     matchKind: isPubliclyVisible ? 'detail' : 'detail-not-visible',
-                    url: isPubliclyVisible && binding && hasUsableFieldValue
-                        ? binding.path.replace(':' + binding.paramName, String(rawFieldValue))
-                        : undefined,
+                    url,
                 });
                 continue;
             }

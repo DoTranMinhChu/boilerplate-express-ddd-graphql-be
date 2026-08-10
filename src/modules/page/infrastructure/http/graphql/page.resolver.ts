@@ -150,9 +150,16 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
      * buộc FE hardcode giả định field key feed-URL LUÔN là "slug" ở 6 nơi khác
      * nhau — sai với content type dùng field feed-URL tên khác (bug thật xác
      * nhận với content type "QA Gamma Task5", field `duongDan`). Nay trả
-     * nguyên object `binding` (path + paramName + fieldKey) để FE đọc field key
-     * ĐÚNG, không đoán. ĐÂY LÀ BREAKING CHANGE VỀ SHAPE GraphQL (String -> Object)
+     * nguyên object `binding` (path + bindings[]) để FE đọc field key ĐÚNG,
+     * không đoán. ĐÂY LÀ BREAKING CHANGE VỀ SHAPE GraphQL (String -> Object)
      * — mọi FE call site đã được cập nhật đồng bộ trong cùng đợt fix này.
+     *
+     * Phase 3 mục 2 (routing đa segment): `paramName`/`fieldKey` đơn đổi thành
+     * `bindings` (mảng N điều kiện field=pathParam) để hỗ trợ path có nhiều
+     * segment động (vd "/danh-muc/:tenDanhMuc/:slug"). LẠI LÀ BREAKING CHANGE
+     * VỀ SHAPE (object cũ -> object mới có `bindings[]`) — FE call site cập
+     * nhật ở Task 8 (cùng đợt Phase 3), BE tạm làm FE build lỗi cho tới đó
+     * (dự kiến, giống các đợt đổi shape trước).
      */
     @Query('getPublicDetailPathByContentType', { returnType: DetailPathBindingType })
     @GQLPublic()
@@ -222,22 +229,20 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 filters: [],
             });
             for (const entry of entries) {
-                // `binding.fieldKey` có thể là 1 cột THẬT trên ContentEntryEntity (vd `slug`,
-                // trước khi γ 3.3 xoá hẳn cột này) chứ không chỉ key trong JSONB `data` — đọc
-                // qua `hasColumn` để nhất quán với cách repository filter builder
-                // (`applyFieldCondition`) đã phân biệt cột thật vs field JSONB, tránh sinh URL
-                // ".../undefined" cho content type còn dùng cột `slug` cũ (xác nhận bằng dữ liệu
-                // QA thật "QA beta detail mode" — xem contentEntryUsage.service.ts's
-                // `readEntryFieldValue` cho cùng lý do).
-                const fieldValue = this.contentEntryService.hasColumn(binding.fieldKey)
-                    ? (entry as any)[binding.fieldKey]
-                    : entry.data?.[binding.fieldKey];
-                // Fix (γ final review, Important #1): field feed-URL không `required` — 1 entry
-                // lưu với field này để trống thì `fieldValue` là `null`/`undefined`/`''`.
-                // `String(undefined)` sẽ ghi literal "undefined" thẳng vào URL sitemap (đã xác
-                // nhận xảy ra thật với content type "QA Repeater Fix (edited)"). Bỏ qua entry
-                // này khỏi sitemap thay vì sinh URL rác.
-                if (fieldValue == null || fieldValue === '') continue;
+                // Phase 3 mục 2 (routing đa segment): `binding.bindings` giờ là MẢNG N điều kiện
+                // (trước là đúng 1 fieldKey/paramName) — đọc GIÁ TRỊ của TỪNG field trước, field nào
+                // là cột THẬT trên ContentEntryEntity đọc qua `hasColumn` (nhất quán với repository
+                // filter builder `applyFieldCondition`), còn lại đọc trong JSONB `data`.
+                const fieldValues = binding.bindings.map((b) => ({
+                    ...b,
+                    value: this.contentEntryService.hasColumn(b.fieldKey) ? (entry as any)[b.fieldKey] : entry.data?.[b.fieldKey],
+                }));
+                // Fix (γ final review, Important #1), mở rộng cho N điều kiện: field feed-URL không
+                // `required` — 1 entry lưu với BẤT KỲ field nào trong số này để trống thì giá trị là
+                // `null`/`undefined`/`''`. `String(undefined)` sẽ ghi literal "undefined" thẳng vào
+                // URL sitemap (đã xác nhận xảy ra thật với content type "QA Repeater Fix (edited)").
+                // Thiếu 1 trong N field -> bỏ qua CẢ URL (không sinh URL nửa vá).
+                if (fieldValues.some((fv) => fv.value == null || fv.value === '')) continue;
 
                 // Mục δ: entry.seo đã xoá (Task 3) — robotsIndex/sitemapPriority/sitemapChangeFreq
                 // hiệu lực giờ resolve qua Page.seoFieldMapping (PageService.resolveSitemapSeo), map
@@ -246,8 +251,11 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 const effectiveSeo = this.pageService.resolveSitemapSeo(boundPage, entry.data);
                 if (effectiveSeo.robotsIndex === false) continue;
 
+                // Build URL bằng cách thay TUẦN TỰ từng ":paramName" — 1 path pattern có thể có N
+                // param (vd "/danh-muc/:tenDanhMuc/:slug").
+                const path = fieldValues.reduce((p, fv) => p.replace(':' + fv.paramName, String(fv.value)), binding.path);
                 urls.push({
-                    path: binding.path.replace(':' + binding.paramName, String(fieldValue)),
+                    path,
                     updatedAt: entry.updatedAt,
                     priority: effectiveSeo.sitemapPriority,
                     changeFreq: effectiveSeo.sitemapChangeFreq,

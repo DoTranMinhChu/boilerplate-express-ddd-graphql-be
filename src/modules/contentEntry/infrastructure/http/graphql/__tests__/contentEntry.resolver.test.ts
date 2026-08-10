@@ -10,7 +10,7 @@ import { ContentEntryResolver } from '../contentEntry.resolver';
  */
 function makeResolver(opts: {
     updateEntryResult: { entry: any; contentTypeId: string; previousData: Record<string, any> };
-    detailBinding: { path: string; paramName: string; fieldKey: string } | null;
+    detailBinding: { path: string; bindings: { paramName: string; fieldKey: string }[] } | null;
 }) {
     const resolver = new ContentEntryResolver();
 
@@ -39,7 +39,7 @@ describe('ContentEntryResolver.updateContentEntry', () => {
                 contentTypeId: 'ct-1',
                 previousData: { slug: 'bai-viet-cu' },
             },
-            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+            detailBinding: { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
         });
 
         await resolver.updateContentEntry('e1', { data: { slug: 'bai-viet-moi' } } as any);
@@ -54,7 +54,7 @@ describe('ContentEntryResolver.updateContentEntry', () => {
                 contentTypeId: 'ct-1',
                 previousData: { slug: 'bai-viet-a', title: 'Tiêu đề cũ' },
             },
-            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+            detailBinding: { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
         });
 
         await resolver.updateContentEntry('e1', { data: { title: 'Tiêu đề mới' } } as any);
@@ -85,7 +85,7 @@ describe('ContentEntryResolver.updateContentEntry', () => {
                 contentTypeId: 'ct-1',
                 previousData: { slug: 'bai-viet-cu' },
             },
-            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+            detailBinding: { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
         });
 
         const result = await resolver.updateContentEntry('e1', { data: { slug: 'bai-viet-moi' } } as any);

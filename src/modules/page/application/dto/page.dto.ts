@@ -70,17 +70,28 @@ export class SitemapUrlType {
     @Field({ type: String, nullable: true }) changeFreq?: string;
 }
 
+// 1 điều kiện field=pathParam của DetailPathBindingType — tách riêng object type (Phase 3 mục 2)
+// vì `bindings` giờ là MẢNG (routing đa segment, vd "/danh-muc/:tenDanhMuc/:slug" cần 2 điều
+// kiện field=pathParam đồng thời), không còn đúng 1 cặp paramName/fieldKey như trước.
+@ObjectType('DetailPathBindingItem')
+export class DetailPathBindingItemType {
+    @Field({ type: String }) paramName!: string;
+    @Field({ type: String }) fieldKey!: string;
+}
+
 // Trả về bởi `getPublicDetailPathByContentType` (mục γ final review, Fix Important #3) — trước
 // đây query này chỉ trả String (`binding.path`), buộc FE phải TỰ GIẢ ĐỊNH field key feed vào
 // URL luôn tên "slug" (cả tên field trong `data` JSONB LẪN tên param trong path pattern) để tự
 // build href tới entry khác — sai với mọi content type dùng field feed-URL tên khác "slug" (bug
 // thật đã xác nhận với content type "QA Gamma Task5", field `duongDan`). Trả nguyên `binding`
 // (PageService.findDetailBinding, Task 2) để FE đọc field key/param name ĐỘNG thay vì đoán.
+// Phase 3 mục 2 (routing đa segment): `paramName`/`fieldKey` đơn đổi thành `bindings` (mảng) để hỗ
+// trợ N điều kiện field=pathParam cùng lúc — ĐÂY LÀ BREAKING CHANGE VỀ SHAPE GraphQL, FE call site
+// cập nhật ở Task 8 (cùng đợt Phase 3).
 @ObjectType('DetailPathBinding')
 export class DetailPathBindingType {
     @Field({ type: String }) path!: string;
-    @Field({ type: String }) paramName!: string;
-    @Field({ type: String }) fieldKey!: string;
+    @Field({ type: [DetailPathBindingItemType] }) bindings!: DetailPathBindingItemType[];
 }
 
 // Trả về bởi query công khai `pageResolver(path)` — mục 25 spec CMS. `entry` là DI SẢN

@@ -14,7 +14,7 @@ import { PageService } from '../../../../application/services/page.service';
 function makeResolver(opts: {
     staticPages: any[];
     contentTypes: any[];
-    detailBindings: Record<string, { path: string; paramName: string; fieldKey: string } | null>;
+    detailBindings: Record<string, { path: string; bindings: { paramName: string; fieldKey: string }[] } | null>;
     entriesByContentType: Record<string, any[]>;
     hasColumn?: (key: string) => boolean;
     // Fix I3 (δ final review): mặc định `resolveSitemapSeo` vẫn là fake mô phỏng (đủ cho các
@@ -74,7 +74,7 @@ describe('PageResolver.getSitemapUrls', () => {
         const { resolver, fakePageService } = makeResolver({
             staticPages: [detailPage],
             contentTypes: [{ id: 'ct-1' }],
-            detailBindings: { 'ct-1': { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            detailBindings: { 'ct-1': { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] } },
             entriesByContentType: { 'ct-1': [{ id: 'e1', data: { slug: 'bai-viet-a' }, updatedAt: new Date(), seo: {} }] },
         });
         const urls = await resolver.getSitemapUrls();
@@ -87,7 +87,7 @@ describe('PageResolver.getSitemapUrls', () => {
         const { resolver } = makeResolver({
             staticPages: [detailPage],
             contentTypes: [{ id: 'ct-1' }],
-            detailBindings: { 'ct-1': { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            detailBindings: { 'ct-1': { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] } },
             entriesByContentType: { 'ct-1': [{ id: 'e1', data: { slug: '' }, updatedAt: new Date(), seo: {} }] },
         });
         const urls = await resolver.getSitemapUrls();
@@ -100,7 +100,7 @@ describe('PageResolver.getSitemapUrls', () => {
         const { resolver } = makeResolver({
             staticPages: [detailPage],
             contentTypes: [{ id: 'ct-1' }],
-            detailBindings: { 'ct-1': { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            detailBindings: { 'ct-1': { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] } },
             entriesByContentType: { 'ct-1': [{ id: 'e1', data: {}, updatedAt: new Date(), seo: {} }] },
         });
         const urls = await resolver.getSitemapUrls();
@@ -129,7 +129,7 @@ describe('PageResolver.getSitemapUrls', () => {
         const { resolver } = makeResolver({
             staticPages: [detailPage],
             contentTypes: [{ id: 'ct-1' }],
-            detailBindings: { 'ct-1': { path: '/san-pham/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            detailBindings: { 'ct-1': { path: '/san-pham/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] } },
             entriesByContentType: {
                 'ct-1': [
                     { id: 'e-a', data: { slug: 'san-pham-a', anHienTrang: false }, updatedAt: new Date(), seo: {} },
@@ -155,7 +155,7 @@ describe('PageResolver.getSitemapUrls', () => {
         const { resolver } = makeResolver({
             staticPages: [detailPage],
             contentTypes: [{ id: 'ct-1' }],
-            detailBindings: { 'ct-1': { path: '/tin-tuc/:slug', paramName: 'slug', fieldKey: 'slug' } },
+            detailBindings: { 'ct-1': { path: '/tin-tuc/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] } },
             entriesByContentType: {
                 'ct-1': [
                     { id: 'e-a', data: { slug: 'bai-a', doUuTien: 0.9 }, updatedAt: new Date(), seo: {} },

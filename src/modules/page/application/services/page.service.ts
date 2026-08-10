@@ -109,12 +109,14 @@ export class PageService extends BaseService<PageEntity> {
     /**
      * Suy "Content Type X hiển thị ở URL nào" từ 1 Block CONTENT_DETAIL tự cấu hình (mục γ 3.2 design
      * 2026-08-09-block-driven-content-binding-design.md). Đây là cơ chế DUY NHẤT kể từ mục γ (cơ chế cũ
-     * tra page-level COLLECTION_DETAIL đã bị xoá hẳn). Ràng buộc đã chốt: CHỈ hoạt động khi block có ĐÚNG 1 điều kiện lọc
-     * dạng `field = pathParam` (không static kèm theo, không nhiều điều kiện) — trường hợp phức tạp hơn trả
-     * về null (KHÔNG throw), coi như "không suy ngược được", giống hệt hành vi hiện tại khi Content Type
-     * chưa có trang Chi tiết nào. Nhiều trang cùng khớp -> lấy trang publish SỚM NHẤT (createdAt).
+     * tra page-level COLLECTION_DETAIL đã bị xoá hẳn). Ràng buộc: hoạt động khi MỌI điều kiện lọc của
+     * block đều là dạng `field = pathParam` (không giới hạn số lượng kể từ Phase 3 mục 2 — routing đa
+     * segment vd "/danh-muc/:tenDanhMuc/:slug" cần ≥2 filter cùng lúc); có bất kỳ filter nào KHÔNG phải
+     * pathParam (vd static trộn lẫn) -> trả về null (KHÔNG throw), coi như "không suy ngược được", giống
+     * hệt hành vi hiện tại khi Content Type chưa có trang Chi tiết nào. Nhiều trang cùng khớp -> lấy
+     * trang publish SỚM NHẤT (createdAt).
      */
-    async findDetailBinding(contentTypeId: string): Promise<{ path: string; paramName: string; fieldKey: string } | null> {
+    async findDetailBinding(contentTypeId: string): Promise<{ path: string; bindings: { paramName: string; fieldKey: string }[] } | null> {
         const publishedPages = await this.pageRepository.findByCondition({ where: { status: EPageStatus.PUBLISHED } });
         if (!publishedPages.length) return null;
 
@@ -129,15 +131,17 @@ export class PageService extends BaseService<PageEntity> {
                 const ds = (s.dataSource as { mode?: string; query?: { contentTypeId?: string }; genericFilters?: { field?: string; valueSource?: string; paramName?: string }[] } | undefined);
                 if (!page || s.type !== 'content-detail' || ds?.mode !== 'detail' || ds.query?.contentTypeId !== contentTypeId) return null;
                 const filters = ds.genericFilters || [];
-                if (filters.length !== 1 || filters[0].valueSource !== 'pathParam' || !filters[0].field || !filters[0].paramName) return null;
-                return { page, field: filters[0].field, paramName: filters[0].paramName };
+                // Mở rộng (Phase 3 mục 2): MỌI filter (không chỉ đúng 1) đều PHẢI là pathParam có đủ field+paramName.
+                if (!filters.length || !filters.every((f) => f.valueSource === 'pathParam' && f.field && f.paramName)) return null;
+                const bindings = filters.map((f) => ({ paramName: f.paramName!, fieldKey: f.field! }));
+                return { page, bindings };
             })
             .filter((c): c is NonNullable<typeof c> => !!c)
             .sort((a, b) => (a.page.createdAt?.getTime() ?? 0) - (b.page.createdAt?.getTime() ?? 0));
 
         const first = candidates[0];
         if (!first) return null;
-        return { path: first.page.path, paramName: first.paramName, fieldKey: first.field };
+        return { path: first.page.path, bindings: first.bindings };
     }
 
     /**

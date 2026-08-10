@@ -13,7 +13,7 @@ interface Setup {
     sections: any[];
     findPublicListResult?: any[];
     /** Kết quả `PageService.findDetailBinding` giả lập — dùng cho nhánh 'content-detail'. */
-    detailBinding?: { path: string; paramName: string; fieldKey: string } | null;
+    detailBinding?: { path: string; bindings: { paramName: string; fieldKey: string }[] } | null;
 }
 
 function makeService(setup: Setup) {
@@ -237,7 +237,7 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
             pages: [DETAIL_PAGE],
             sections: [section],
             findPublicListResult: [{ id: 'entry-1' }],
-            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+            detailBinding: { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
         });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual({
@@ -257,7 +257,7 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
             pages: [DETAIL_PAGE],
             sections: [section],
             findPublicListResult: [], // findPublicList trả [] -> entry không hiển thị công khai
-            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+            detailBinding: { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
         });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual({
@@ -277,7 +277,7 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
             pages: [DETAIL_PAGE],
             sections: [section],
             findPublicListResult: [{ id: 'entry-1' }],
-            detailBinding: { path: '/bai-viet/:slug', paramName: 'slug', fieldKey: 'slug' },
+            detailBinding: { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
         });
         const result = await service.findUsageLocations('entry-1');
         expect(result).toContainEqual(expect.objectContaining({ sectionId: 'sec-detail', matchKind: 'detail', url: undefined }));

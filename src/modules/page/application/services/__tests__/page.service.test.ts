@@ -17,7 +17,42 @@ describe('PageService.findDetailBinding', () => {
         const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
         const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
         const result = await service.findDetailBinding('ct-1');
-        expect(result).toEqual({ path: '/tin-tuc/:slug', paramName: 'slug', fieldKey: 'slug' });
+        expect(result).toEqual({ path: '/tin-tuc/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+    });
+
+    it('findDetailBinding trả về NHIỀU binding khi block có ≥2 filter dạng field=pathParam', async () => {
+        const page = makePage({ path: '/danh-muc/:tenDanhMuc/:slug' });
+        const section = makeSection(page.id, {
+            mode: 'detail', query: { contentTypeId: 'ct-1' },
+            genericFilters: [
+                { field: 'danhMuc', valueSource: 'pathParam', paramName: 'tenDanhMuc' },
+                { field: 'slug', valueSource: 'pathParam', paramName: 'slug' },
+            ],
+        });
+        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
+        const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
+        const result = await service.findDetailBinding('ct-1');
+        expect(result?.bindings).toEqual([
+            { paramName: 'tenDanhMuc', fieldKey: 'danhMuc' },
+            { paramName: 'slug', fieldKey: 'slug' },
+        ]);
+    });
+
+    it('findDetailBinding trả null khi 1 trong N filter KHÔNG phải pathParam (vd có filter static trộn lẫn)', async () => {
+        const page = makePage({ path: '/danh-muc/:tenDanhMuc/:slug' });
+        const section = makeSection(page.id, {
+            mode: 'detail', query: { contentTypeId: 'ct-1' },
+            genericFilters: [
+                { field: 'danhMuc', valueSource: 'pathParam', paramName: 'tenDanhMuc' },
+                { field: 'kichHoat', valueSource: 'static', staticValue: true },
+            ],
+        });
+        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
+        const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
+        const result = await service.findDetailBinding('ct-1');
+        expect(result).toBeNull();
     });
 
     it('trả null khi block có NHIỀU điều kiện lọc (không suy ngược được, không throw)', async () => {
