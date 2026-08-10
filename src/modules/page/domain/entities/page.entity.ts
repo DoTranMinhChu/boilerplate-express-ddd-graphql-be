@@ -73,11 +73,16 @@ export class PageEntity extends BaseEntity {
     // Nhóm dịch -- mọi bản dịch (kể cả bản gốc) của CÙNG 1 nội dung có chung giá trị này. Tự sinh
     // UUID mới khi tạo record KHÔNG chỉ định (nhóm dịch chỉ có 1 thành viên) -- xem createPage/
     // createTranslation. KHÔNG có khái niệm "gốc/con" -- mọi locale trong nhóm ngang hàng. Tự sinh
-    // qua @BeforeInsert (uuidv7, giống cách BaseEntity.id tự sinh) -- KHÔNG dùng SQL default
-    // (vd gen_random_uuid()) vì đó không phải convention của dự án (xem BaseEntity.generateId).
+    // qua @BeforeInsert (uuidv7, giống cách BaseEntity.id tự sinh) cho record MỚI. VẪN GIỮ SQL
+    // default (gen_random_uuid()) -- KHÔNG phải để sinh id cho record mới (đã có @BeforeInsert lo),
+    // mà để TypeORM's `ALTER TABLE ... ADD COLUMN ... NOT NULL` backfill được giá trị cho record CŨ
+    // đã tồn tại trước cột này -- thiếu default, Postgres từ chối ALTER TABLE nếu bảng đã có row
+    // (lỗi 23502 "contains null values", đã xảy ra thật khi thiếu default này, server crash lúc
+    // synchronize() -- DB_SYNCHRONIZE=true trong dự án này). gen_random_uuid() là hàm VOLATILE nên
+    // Postgres backfill giá trị KHÁC NHAU cho mỗi row cũ, không phải 1 giá trị dùng chung.
     @Field({ type: String })
     @Index()
-    @Column()
+    @Column({ default: () => 'gen_random_uuid()' })
     translationGroupId!: string;
 
     @BeforeInsert()
