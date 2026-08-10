@@ -255,3 +255,47 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
         } as any)).rejects.toThrow(/đã tồn tại/);
     });
 });
+
+describe('ContentEntryService.createTranslation', () => {
+    function makeSourceEntry(overrides: Partial<any> = {}) {
+        return { id: 'entry-1', contentTypeId: 'ct-1', translationGroupId: 'group-1', locale: 'vi', status: 'PUBLISHED', data: { title: 'Xin chào' }, ...overrides };
+    }
+
+    it('nhân bản Entry sang locale mới, giữ translationGroupId + data NGUYÊN VẸN', async () => {
+        const source = makeSourceEntry();
+        const fakeRepo = {
+            findById: jest.fn(async () => source),
+            findOneByCondition: jest.fn(async () => null),
+            create: jest.fn(async (data: any) => ({ id: 'entry-2', ...data })),
+        };
+        const service = new ContentEntryService(fakeRepo as any, undefined as any);
+        const result = await service.createTranslation('entry-1', 'en');
+
+        expect(result.translationGroupId).toBe('group-1');
+        expect((result as any).locale).toBe('en');
+        expect((result as any).data).toEqual({ title: 'Xin chào' });
+        expect(fakeRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+            contentTypeId: 'ct-1', translationGroupId: 'group-1', locale: 'en', status: 'DRAFT', data: { title: 'Xin chào' },
+        }), undefined);
+    });
+
+    it('throw ConflictException khi nhóm dịch đã có bản locale đó', async () => {
+        const source = makeSourceEntry();
+        const fakeRepo = { findById: jest.fn(async () => source), findOneByCondition: jest.fn(async () => ({ id: 'existing' })) };
+        const service = new ContentEntryService(fakeRepo as any, undefined as any);
+        await expect(service.createTranslation('entry-1', 'en')).rejects.toThrow(/đã có bản locale/);
+    });
+
+    it('throw ConflictException khi locale truyền vào == locale hiện tại', async () => {
+        const source = makeSourceEntry({ locale: 'en' });
+        const fakeRepo = { findById: jest.fn(async () => source) };
+        const service = new ContentEntryService(fakeRepo as any, undefined as any);
+        await expect(service.createTranslation('entry-1', 'en')).rejects.toThrow(/đã ở locale/);
+    });
+
+    it('throw NotFoundException khi entry không tồn tại', async () => {
+        const fakeRepo = { findById: jest.fn(async () => null) };
+        const service = new ContentEntryService(fakeRepo as any, undefined as any);
+        await expect(service.createTranslation('missing', 'en')).rejects.toThrow(/Không tìm thấy content entry/);
+    });
+});

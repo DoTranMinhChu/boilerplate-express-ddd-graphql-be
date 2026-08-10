@@ -141,3 +141,85 @@ describe('PageService.resolveSitemapSeo', () => {
         expect(result.sitemapPriority).toBe(0.5);
     });
 });
+
+describe('PageService.createTranslation', () => {
+    function makeSourcePage(overrides: Partial<any> = {}) {
+        return {
+            id: 'page-1', internalName: 'Giới thiệu', path: '/gioi-thieu', pageType: 'STATIC_MODULAR',
+            templateKey: undefined, translationGroupId: 'group-1', locale: 'vi', status: 'PUBLISHED', ...overrides,
+        };
+    }
+    function makeSiteLocaleSettingsService(defaultLocale = 'vi') {
+        return { getSettings: jest.fn(async () => ({ defaultLocale, enabledLocales: ['vi', 'en'] })) };
+    }
+
+    it('nhân bản Page + Section sang locale mới, giữ translationGroupId', async () => {
+        const source = makeSourcePage();
+        const sections = [
+            { id: 'sec-1', pageId: 'page-1', type: 'hero', order: 0, enabled: true, content: { a: 1 }, style: { theme: 'dark' }, animation: [{ target: 'x' }], dataSource: { mode: 'manual' }, fieldMapping: { slot: 'k' }, visibilityRules: { desktop: true }, responsiveSettings: { spacing: 'md' }, layoutPreset: 'default', theme: 'light' },
+            { id: 'sec-2', pageId: 'page-1', type: 'text', order: 1, enabled: false, content: { b: 2 }, style: {}, animation: [], dataSource: undefined, fieldMapping: undefined, visibilityRules: undefined, responsiveSettings: undefined, layoutPreset: undefined, theme: undefined },
+        ];
+        const fakePageRepo = {
+            findById: jest.fn(async () => source),
+            findOneByCondition: jest.fn(async () => null),
+            create: jest.fn(async (data: any) => ({ id: 'page-2', ...data })),
+        };
+        const fakeSectionRepo = {
+            findByCondition: jest.fn(async () => sections),
+            create: jest.fn(async (data: any) => ({ id: 'new-sec', ...data })),
+        };
+        const fakeSiteLocaleSettingsService = makeSiteLocaleSettingsService('vi');
+
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, fakeSiteLocaleSettingsService as any);
+        const result = await service.createTranslation('page-1', 'en');
+
+        expect(result.translationGroupId).toBe('group-1');
+        expect((result as any).locale).toBe('en');
+        expect(fakePageRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+            path: '/en/gioi-thieu', translationGroupId: 'group-1', locale: 'en', status: 'DRAFT',
+        }), undefined);
+        expect(fakeSectionRepo.create).toHaveBeenCalledTimes(2);
+        expect(fakeSectionRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+            pageId: 'page-2', type: 'hero', order: 0, enabled: true, content: { a: 1 }, style: { theme: 'dark' },
+            animation: [{ target: 'x' }], dataSource: { mode: 'manual' }, fieldMapping: { slot: 'k' },
+            visibilityRules: { desktop: true }, responsiveSettings: { spacing: 'md' }, layoutPreset: 'default', theme: 'light',
+        }));
+        expect(fakeSectionRepo.create).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-2', type: 'text', order: 1, enabled: false }));
+    });
+
+    it('path bản dịch KHÔNG thêm prefix khi target locale là defaultLocale', async () => {
+        const source = makeSourcePage({ locale: 'en' });
+        const fakePageRepo = {
+            findById: jest.fn(async () => source),
+            findOneByCondition: jest.fn(async () => null),
+            create: jest.fn(async (data: any) => ({ id: 'page-2', ...data })),
+        };
+        const fakeSectionRepo = { findByCondition: jest.fn(async () => []), create: jest.fn() };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any);
+        await service.createTranslation('page-1', 'vi');
+        expect(fakePageRepo.create).toHaveBeenCalledWith(expect.objectContaining({ path: '/gioi-thieu', locale: 'vi' }), undefined);
+    });
+
+    it('throw ConflictException khi nhóm dịch đã có bản locale đó', async () => {
+        const source = makeSourcePage();
+        const fakePageRepo = {
+            findById: jest.fn(async () => source),
+            findOneByCondition: jest.fn(async () => ({ id: 'existing-en' })),
+        };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService() as any);
+        await expect(service.createTranslation('page-1', 'en')).rejects.toThrow(/đã có bản locale/);
+    });
+
+    it('throw ConflictException khi locale truyền vào == locale hiện tại của page', async () => {
+        const source = makeSourcePage({ locale: 'en' });
+        const fakePageRepo = { findById: jest.fn(async () => source) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, undefined as any);
+        await expect(service.createTranslation('page-1', 'en')).rejects.toThrow(/đã ở locale/);
+    });
+
+    it('throw NotFoundException khi page không tồn tại', async () => {
+        const fakePageRepo = { findById: jest.fn(async () => null) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, undefined as any);
+        await expect(service.createTranslation('missing', 'en')).rejects.toThrow(/Không tìm thấy page/);
+    });
+});

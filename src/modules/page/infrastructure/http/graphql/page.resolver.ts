@@ -275,6 +275,18 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         return this.pageService.createPage(data as any);
     }
 
+    /** "+ Thêm bản dịch" (Phase 3 mục 3) — nhân bản page hiện có sang 1 locale mới, giữ
+     * translationGroupId. Cùng permission với createPage (tạo record page mới). */
+    @Mutation('createPageTranslation', { returnType: PageEntity })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.PAGE_CREATE, onForbidden: 'throw' })
+    async createPageTranslation(
+        @Args('pageId') pageId: string,
+        @Args('locale') locale: string,
+    ) {
+        return this.pageService.createTranslation(pageId, locale);
+    }
+
     @Mutation('updatePage', { returnType: PageEntity })
     @GQLAuthorized(STAFF_ROLES)
     @GQLPermission({ permission: EPermission.PAGE_UPDATE, onForbidden: 'throw', checkArg: 'id' })

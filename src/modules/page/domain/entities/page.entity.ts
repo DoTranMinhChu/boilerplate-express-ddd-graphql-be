@@ -1,9 +1,10 @@
 import { BaseEntity } from '@/core/domain/entities/base.entity';
-import { Entity, Column, Index } from 'typeorm';
+import { Entity, Column, Index, BeforeInsert } from 'typeorm';
 import { ObjectType, Field } from '@/core/shared/decorators/graphQL.decorators';
 import { SeoType } from '@/core/shared/dto/seo.dto';
 import { GraphQLMixed } from '@/core/shared/graphql/scalars';
 import { EPageType, EPageStatus } from '@/modules/page/application/enums/page.enum';
+import { uuidv7 } from 'uuidv7';
 
 @ObjectType('Page')
 @Entity('page')
@@ -68,6 +69,23 @@ export class PageEntity extends BaseEntity {
     @Field({ type: String, nullable: true })
     @Column({ default: 'vi' })
     locale!: string;
+
+    // Nhóm dịch -- mọi bản dịch (kể cả bản gốc) của CÙNG 1 nội dung có chung giá trị này. Tự sinh
+    // UUID mới khi tạo record KHÔNG chỉ định (nhóm dịch chỉ có 1 thành viên) -- xem createPage/
+    // createTranslation. KHÔNG có khái niệm "gốc/con" -- mọi locale trong nhóm ngang hàng. Tự sinh
+    // qua @BeforeInsert (uuidv7, giống cách BaseEntity.id tự sinh) -- KHÔNG dùng SQL default
+    // (vd gen_random_uuid()) vì đó không phải convention của dự án (xem BaseEntity.generateId).
+    @Field({ type: String })
+    @Index()
+    @Column()
+    translationGroupId!: string;
+
+    @BeforeInsert()
+    protected generateTranslationGroupId(): void {
+        if (!this.translationGroupId) {
+            this.translationGroupId = uuidv7();
+        }
+    }
 
     @Field({ type: SeoType, nullable: true })
     @Column({ type: 'jsonb', default: {} })

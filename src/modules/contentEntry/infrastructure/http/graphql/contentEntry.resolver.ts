@@ -119,6 +119,18 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         return this.contentEntryService.createEntry(data as any);
     }
 
+    /** "+ Thêm bản dịch" (Phase 3 mục 3) — nhân bản entry hiện có sang 1 locale mới, giữ
+     * translationGroupId + data. Cùng permission với createContentEntry (tạo record entry mới). */
+    @Mutation('createContentEntryTranslation', { returnType: ContentEntryEntity })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.CONTENT_ENTRY_CREATE, onForbidden: 'throw' })
+    async createContentEntryTranslation(
+        @Args('entryId') entryId: string,
+        @Args('locale') locale: string,
+    ) {
+        return this.contentEntryService.createTranslation(entryId, locale);
+    }
+
     @Mutation('updateContentEntry', { returnType: ContentEntryEntity })
     @GQLAuthorized(STAFF_ROLES)
     @GQLPermission({ permission: EPermission.CONTENT_ENTRY_UPDATE, onForbidden: 'throw', checkArg: 'id' })

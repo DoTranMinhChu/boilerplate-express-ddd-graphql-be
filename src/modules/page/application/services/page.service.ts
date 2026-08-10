@@ -7,6 +7,7 @@ import { assertValidPagePath, matchPathPattern, normalizePagePath } from '@/core
 import { RedirectService } from './redirect.service';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
 import { SectionRepository } from '@/modules/section/infrastructure/persistence/section.repository';
+import { SiteLocaleSettingsService } from '@/modules/siteSettings/application/services/siteLocaleSettings.service';
 import { DeepPartial, In, Like } from 'typeorm';
 
 export class PageService extends BaseService<PageEntity> {
@@ -15,8 +16,14 @@ export class PageService extends BaseService<PageEntity> {
         private readonly redirectService = new RedirectService(),
         private readonly pageVersionRepository = new PageVersionRepository(),
         private readonly sectionRepository = new SectionRepository(),
+        private readonly siteLocaleSettingsService = new SiteLocaleSettingsService(),
     ) {
         super(pageRepository, 'Page');
+    }
+
+    private async getDefaultLocale(): Promise<string> {
+        const settings = await this.siteLocaleSettingsService.getSettings();
+        return settings.defaultLocale;
     }
 
     private async assertPathAvailable(path: string, excludeId?: string): Promise<void> {
@@ -31,6 +38,56 @@ export class PageService extends BaseService<PageEntity> {
         assertValidPagePath(path);
         await this.assertPathAvailable(path);
         return this.create({ ...data, path });
+    }
+
+    /**
+     * "+ Thêm bản dịch" (Phase 3 mục 3) — nhân bản Page (+ toàn bộ Section con) sang 1 locale mới
+     * trong CÙNG nhóm dịch (translationGroupId giữ nguyên, KHÔNG sinh nhóm mới). Path bản dịch tự
+     * thêm prefix "/{locale}" trừ khi locale đích là defaultLocale (mục 14 xem Task 14 — mọi locale
+     * KHÁC defaultLocale đều có prefix, defaultLocale giữ path gốc không prefix). Bản dịch mới LUÔN
+     * bắt đầu Draft — admin tự dịch nội dung xong mới publish, không lộ ra ngoài khi chưa hoàn tất.
+     */
+    async createTranslation(pageId: string, locale: string): Promise<PageEntity> {
+        const source = await this.pageRepository.findById(pageId);
+        if (!source) throw new NotFoundException('Không tìm thấy page.');
+        if (source.locale === locale) throw new ConflictException(`Page đã ở locale "${locale}".`);
+
+        const existing = await this.pageRepository.findOneByCondition({ where: { translationGroupId: source.translationGroupId, locale } });
+        if (existing) throw new ConflictException(`Nhóm dịch này đã có bản locale "${locale}".`);
+
+        const defaultLocale = await this.getDefaultLocale();
+        const newPath = locale === defaultLocale ? source.path : `/${locale}${source.path}`;
+        await this.assertPathAvailable(newPath);
+
+        const newPage = await this.create({
+            internalName: `${source.internalName} (${locale})`,
+            path: newPath,
+            pageType: source.pageType,
+            templateKey: source.templateKey,
+            translationGroupId: source.translationGroupId,
+            locale,
+            status: EPageStatus.DRAFT, // Bản dịch mới LUÔN bắt đầu Draft -- admin tự dịch xong mới publish.
+        });
+
+        const sourceSections = await this.sectionRepository.findByCondition({ where: { pageId: source.id } });
+        for (const s of sourceSections) {
+            await this.sectionRepository.create({
+                pageId: newPage.id,
+                type: s.type,
+                order: s.order,
+                enabled: s.enabled,
+                content: s.content,
+                style: s.style,
+                animation: s.animation,
+                dataSource: s.dataSource,
+                fieldMapping: s.fieldMapping,
+                visibilityRules: s.visibilityRules,
+                responsiveSettings: s.responsiveSettings,
+                layoutPreset: s.layoutPreset,
+                theme: s.theme,
+            });
+        }
+        return newPage;
     }
 
     async updatePage(id: string, data: DeepPartial<PageEntity>): Promise<PageEntity> {

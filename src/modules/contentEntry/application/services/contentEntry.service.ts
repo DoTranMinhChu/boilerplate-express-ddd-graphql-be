@@ -5,6 +5,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@/cor
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
 import { FieldDefinitionType } from '@/modules/contentType/application/dto/fieldDefinition.dto';
 import { EFieldType } from '@/modules/contentType/application/enums/contentType.enum';
+import { EPageStatus } from '@/modules/page/application/enums/page.enum';
 import { slugify } from '@/core/shared/utils/slug.util';
 import { DeepPartial } from 'typeorm';
 
@@ -158,6 +159,29 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             throw new NotFoundException(`Không tìm thấy content type (id: ${contentTypeId}) khi áp dụng luật hiển thị.`);
         }
         return (contentType.contentVisibilityRules || []).map((r) => ({ field: r.field, operator: r.operator, value: r.value }));
+    }
+
+    /**
+     * "+ Thêm bản dịch" (Phase 3 mục 3) — nhân bản Entry sang 1 locale mới trong CÙNG nhóm dịch
+     * (translationGroupId giữ nguyên). `data` nhân bản NGUYÊN VẸN -- admin tự sửa text sang ngôn
+     * ngữ mới, field không phải text (ảnh, số, RELATION...) giữ nguyên hợp lý (không cần dịch).
+     * Bản dịch mới LUÔN bắt đầu Draft, giống PageService.createTranslation.
+     */
+    async createTranslation(entryId: string, locale: string): Promise<ContentEntryEntity> {
+        const source = await this.contentEntryRepository.findById(entryId);
+        if (!source) throw new NotFoundException('Không tìm thấy content entry.');
+        if (source.locale === locale) throw new ConflictException(`Entry đã ở locale "${locale}".`);
+
+        const existing = await this.contentEntryRepository.findOneByCondition({ where: { translationGroupId: source.translationGroupId, locale } });
+        if (existing) throw new ConflictException(`Nhóm dịch này đã có bản locale "${locale}".`);
+
+        return this.create({
+            contentTypeId: source.contentTypeId,
+            translationGroupId: source.translationGroupId,
+            locale,
+            status: EPageStatus.DRAFT,
+            data: source.data,
+        });
     }
 
     async createEntry(input: DeepPartial<ContentEntryEntity>): Promise<ContentEntryEntity> {
