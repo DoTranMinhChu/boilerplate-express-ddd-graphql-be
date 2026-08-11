@@ -78,6 +78,28 @@ export class NodeService extends BaseService<NodeEntity> {
             // (cùng trx repository) để cả bước đọc-rồi-viết là atomic.
             const created = await this.manager().transaction(async (trx) => {
                 const trxRepo = trx.getRepository(NodeEntity);
+
+                // Fix Important round 2 (Task 5 review): manager().transaction() không
+                // tự chặn 2 transaction đồng thời cùng đọc trùng siblingCount ở READ
+                // COMMITTED (mặc định Postgres) — và Postgres không cho phép FOR UPDATE
+                // trên câu COUNT (aggregate), nên không thể khoá trực tiếp câu count bên
+                // dưới. Khoá pessimistic_write trên ROW của node CHA trước khi đếm — 1
+                // transaction thứ 2 nhắm cùng parentId sẽ bị block ở đây tới khi
+                // transaction thứ 1 commit, nên count nó đọc được đã phản ánh insert của
+                // transaction thứ 1 → không còn 2 node nhận trùng order.
+                if (data.parentId) {
+                    await trxRepo
+                        .createQueryBuilder('n')
+                        .setLock('pessimistic_write')
+                        .where('n.id = :id', { id: data.parentId })
+                        .getOne();
+                }
+                // Tạo node gốc (không có parentId) không có row cha để khoá — giới hạn
+                // còn lại được chấp nhận: mỗi trang chỉ có 1 node gốc, tạo 1 lần (migration
+                // hoặc lúc tạo trang mới) nên tần suất tạo đồng thời ở gốc rất thấp; không
+                // khoá Page entity vì sẽ khiến node module phụ thuộc page module (ngoài
+                // phạm vi finding này).
+
                 const siblingCount = await trxRepo.count({
                     where: { pageId: data.pageId, parentId: (data.parentId ?? IsNull()) as any } as any,
                 });

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NodeService } from '../node.service';
-import { ConflictException, BadRequestException } from '@/core/domain/exceptions/appException';
+import { ConflictException, BadRequestException, NotFoundException } from '@/core/domain/exceptions/appException';
+import { eventBus } from '@/core/infrastructure/events/eventBus';
 
 function makeService(nodes: Record<string, { id: string; parentId?: string; pageId?: string }>) {
     const all = Object.values(nodes);
@@ -16,8 +17,10 @@ function makeService(nodes: Record<string, { id: string; parentId?: string; page
                     if (where.parentId && where.parentId._value) {
                         if (!where.parentId._value.includes(n.parentId)) return false;
                     }
-                    // hỗ trợ IsNull() giả lập: object có _type 'is' hoặc undefined literal parentId
-                    else if (where.parentId === null || (where.parentId && where.parentId._type === 'is')) {
+                    // hỗ trợ IsNull() giả lập: object có _type 'isNull' (verified qua
+                    // node_modules/typeorm/find-options/operator/IsNull.js — FindOperator
+                    // constructor nhận literal "isNull") hoặc undefined literal parentId
+                    else if (where.parentId === null || (where.parentId && where.parentId._type === 'isNull')) {
                         if (n.parentId) return false;
                     } else if (n.parentId !== where.parentId) {
                         return false;
@@ -37,12 +40,23 @@ function makeService(nodes: Record<string, { id: string; parentId?: string; page
         // Giả lập EntityManager.transaction() cho fix atomic order-assignment trong
         // createNode (Task 5 review fix round 1) — trxRepo.count() tái dùng cùng logic
         // filter với findByCondition ở trên, create/save chỉ merge data như fakeRepo.create.
+        // createQueryBuilder(...).setLock(...).where(...).getOne() giả lập câu khoá
+        // pessimistic_write trên row cha (Task 5 review fix round 2, finding 1) — không
+        // cần mô phỏng khoá thật trong unit test đồng bộ, chỉ cần trả về đúng shape để
+        // đoạn code gọi được và không throw.
         manager: jest.fn(() => ({
             transaction: async (cb: any) => {
                 const trxRepo = {
                     count: async (opts: any) => (await fakeRepo.findByCondition(opts)).length,
                     create: (data: any) => data,
                     save: async (data: any) => ({ id: 'new-node', ...data }),
+                    createQueryBuilder: () => ({
+                        setLock: () => ({
+                            where: () => ({
+                                getOne: async () => null,
+                            }),
+                        }),
+                    }),
                 };
                 return cb({ getRepository: () => trxRepo });
             },
@@ -100,6 +114,33 @@ describe('NodeService — giới hạn an toàn', () => {
     });
 });
 
+describe('NodeService — createNode: đếm sibling qua transaction', () => {
+    it('gán order = số sibling thật đã tồn tại cùng (pageId, parentId)', async () => {
+        // Cha 'parent' đã có 2 sibling thật (s0, s1) cùng pageId+parentId — node mới
+        // tạo dưới cùng cha phải đọc count qua trxRepo.count() (transaction path) và
+        // nhận order = 2, không phải mặc định 0 trên tập rỗng.
+        const nodes = {
+            parent: { id: 'parent', pageId: 'p1' },
+            s0: { id: 's0', pageId: 'p1', parentId: 'parent' },
+            s1: { id: 's1', pageId: 'p1', parentId: 'parent' },
+        };
+        const { service } = makeService(nodes);
+        const result = await service.createNode({ pageId: 'p1', parentId: 'parent', type: 'frame' } as any);
+        expect(result.order).toBe(2);
+    });
+
+    it('createNode qua transaction vẫn phát event Node.created', async () => {
+        const nodes = { parent: { id: 'parent', pageId: 'p1' } };
+        const { service } = makeService(nodes);
+        const spy = jest.spyOn(eventBus, 'publishAsync').mockImplementation(() => {});
+
+        const result = await service.createNode({ pageId: 'p1', parentId: 'parent', type: 'frame' } as any);
+
+        expect(spy).toHaveBeenCalledWith('Node.created', expect.objectContaining({ entityId: result.id, data: result }));
+        spy.mockRestore();
+    });
+});
+
 describe('NodeService — xoá cả cây con', () => {
     it('deleteSubtree xoá node và toàn bộ con cháu', async () => {
         const tree = {
@@ -112,6 +153,31 @@ describe('NodeService — xoá cả cây con', () => {
         expect(fakeRepo.deleteById).toHaveBeenCalledWith('grandchild');
         expect(fakeRepo.deleteById).toHaveBeenCalledWith('child');
         expect(fakeRepo.deleteById).toHaveBeenCalledWith('root');
+        expect(fakeRepo.deleteById).toHaveBeenCalledTimes(3);
+    });
+
+    it('deleteSubtree không throw khi dữ liệu lỗi (node tự trỏ parentId vào chính nó)', async () => {
+        // Node 'x' có parentId = 'x' (self-referencing, dữ liệu lỗi) và 1 con thật 'y'.
+        // collectDescendantIds đã dedupe qua Set nên descendantIds = ['x', 'y'], khiến
+        // deleteSubtree gọi deleteIfExists('x') 2 lần (1 lần trong loop descendant, 1
+        // lần cho chính root truyền vào) — mô phỏng deleteById throw NotFoundException
+        // ở lần gọi thứ 2 cho cùng 1 id, xem deleteIfExists có nuốt lỗi và toàn bộ cây
+        // (bao gồm id thật 'y') vẫn được xoá hết, không abort giữa chừng.
+        const tree = {
+            x: { id: 'x', pageId: 'p1', parentId: 'x' },
+            y: { id: 'y', pageId: 'p1', parentId: 'x' },
+        };
+        const { service, fakeRepo } = makeService(tree);
+        const seen = new Set<string>();
+        (fakeRepo.deleteById as jest.Mock).mockImplementation(async (delId: string) => {
+            if (seen.has(delId)) throw new NotFoundException('Không tìm thấy node.');
+            seen.add(delId);
+        });
+
+        await service.deleteSubtree('x');
+
+        expect(fakeRepo.deleteById).toHaveBeenCalledWith('y');
+        expect(fakeRepo.deleteById).toHaveBeenCalledWith('x');
         expect(fakeRepo.deleteById).toHaveBeenCalledTimes(3);
     });
 });
