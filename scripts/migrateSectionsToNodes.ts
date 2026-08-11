@@ -22,7 +22,7 @@ async function main() {
     const sectionRepo = AppDataSource.getRepository(SectionEntity);
     const nodeRepo = AppDataSource.getRepository(NodeEntity);
 
-    const pages = await pageRepo.find({ where: {} });
+    const pages = await pageRepo.find();
     let migrated = 0;
     let skipped = 0;
 
@@ -65,10 +65,11 @@ async function main() {
                     // Fix Critical (Task 9 review): section.style (theme/accentColor/
                     // textColor/backgroundColor/spacing) trước đây bị bỏ sót hoàn toàn
                     // (hard-code style: {}) -- không map vào đâu cả, mất mọi tuỳ biến
-                    // màu/spacing người dùng đã đặt trên Section. Giữ nguyên trong
-                    // props.legacyStyle (cùng cách xử lý với animation) — node.style
-                    // (StyleObject shape mới) để trống, không suy diễn tự động.
-                    style: {},
+                    // màu/spacing người dùng đã đặt trên Section. NodeEntity.style LÀ
+                    // field styling mà consumer mới (StyleTab/NodeStyleTab) sẽ đọc, nên
+                    // copy thẳng section.style vào đây (không phải props) — shape của
+                    // Section.style đã tương thích, không cần converter.
+                    style: section.style ?? {},
                     layout: {},
                     props: {
                         content: section.content,
@@ -77,7 +78,6 @@ async function main() {
                         layoutPreset: section.layoutPreset,
                         theme: section.theme,
                         enabled: section.enabled,
-                        legacyStyle: section.style ?? {},
                         // Fix Important (Task 9 review): Section.visibilityRules
                         // ({desktop,tablet,mobile,startAt,endAt}) và
                         // Section.responsiveSettings ({mobileOrder?,hideOnMobile?,
@@ -101,7 +101,7 @@ async function main() {
                     // chưa tồn tại) — giữ nguyên trong props để không mất dữ liệu, Phase 3 sẽ
                     // viết 1 script chuyển đổi riêng khi AnimationTimeline ra đời.
                 });
-                (child.props as any).legacyAnimation = section.animation ?? [];
+                child.props.legacyAnimation = section.animation ?? [];
                 await trxNodeRepo.save(child);
             }
 
