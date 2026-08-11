@@ -20,7 +20,6 @@ async function main() {
 
     const pageRepo = AppDataSource.getRepository(PageEntity);
     const sectionRepo = AppDataSource.getRepository(SectionEntity);
-    const nodeRepo = AppDataSource.getRepository(NodeEntity);
 
     const pages = await pageRepo.find();
     let migrated = 0;
