@@ -12,6 +12,19 @@ const RESET_EXPIRY_MINUTES = 30;
 const RESET_PASSWORD_PATH = '/reset-password';
 const logger = Logger.getInstance();
 
+/** Escape 5 ký tự đặc biệt HTML -- dùng khi nhúng dữ liệu KHÔNG do hệ thống kiểm soát (vd input
+ * khách công khai tự nhập) vào 1 chuỗi HTML dựng bằng template string thô (không qua JSX/thư viện
+ * template tự escape). Không dùng cho dữ liệu hệ thống kiểm soát (username/token/orgName) ở các
+ * hàm khác trong file này -- không cần, và escape thừa 2 lần không sai nhưng không cần thiết. */
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 interface IBrandVars {
     /** Tên thương hiệu khớp domain — fallback APP_NAME nếu không khớp brand nào */
     brandName: string;
@@ -259,8 +272,13 @@ export class MailService {
         const { to, formLabel, data, config } = options;
         const transporter = this.buildTransporter(config);
         const brand = await this.resolveBrandVars();
+        // Fix Important (Task 6 review): `data` đến từ `createPublicFormSubmission` -- KHÁCH
+        // CÔNG KHAI, chưa đăng nhập, tự nhập -- escape HTML trước khi nhúng vào email, tránh
+        // khách gửi form với giá trị chứa markup/script hiện thực trong hộp thư nhân viên (mọi
+        // `send*Email` khác trong file này chỉ nhúng dữ liệu HỆ THỐNG kiểm soát -- username/token/
+        // orgName -- đây là method ĐẦU TIÊN nhúng input công khai chưa qua kiểm soát nội dung).
         const rows = Object.entries(data)
-            .map(([key, value]) => `<tr><td style="padding:4px 12px;color:#555;">${key}</td><td style="padding:4px 12px;">${String(value)}</td></tr>`)
+            .map(([key, value]) => `<tr><td style="padding:4px 12px;color:#555;">${escapeHtml(key)}</td><td style="padding:4px 12px;">${escapeHtml(String(value))}</td></tr>`)
             .join('');
         const result = await transporter.sendMail({
             from: `"${config.senderName}" <${config.senderEmail}>`,
