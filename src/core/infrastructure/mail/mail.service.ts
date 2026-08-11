@@ -245,6 +245,37 @@ export class MailService {
         });
         logger.info(`[Mail] Email thông báo được mời đã gửi → ${to} | MessageId: ${result.messageId}`);
     }
+
+    /**
+     * Báo cho địa chỉ notifyEmail đã cấu hình trên Form (Phase 4 mục 1) biết có submission mới.
+     * Không có locale riêng — nội dung cố định tiếng Việt (module Form chưa hỗ trợ multi-locale).
+     */
+    async sendFormSubmissionNotification(options: {
+        to: string;
+        formLabel: string;
+        data: Record<string, any>;
+        config: EmailConfigEntity;
+    }): Promise<void> {
+        const { to, formLabel, data, config } = options;
+        const transporter = this.buildTransporter(config);
+        const brand = await this.resolveBrandVars();
+        const rows = Object.entries(data)
+            .map(([key, value]) => `<tr><td style="padding:4px 12px;color:#555;">${key}</td><td style="padding:4px 12px;">${String(value)}</td></tr>`)
+            .join('');
+        const result = await transporter.sendMail({
+            from: `"${config.senderName}" <${config.senderEmail}>`,
+            to,
+            subject: `[${brand.brandName}] Có phản hồi mới từ form "${formLabel}"`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
+                    ${brand.brandLogoHtml}
+                    <h2 style="color: ${brand.brandColor};">Phản hồi mới — ${formLabel}</h2>
+                    <table style="width:100%; border-collapse: collapse;">${rows}</table>
+                </div>
+            `,
+        });
+        logger.info(`[Mail] Email thông báo form submission đã gửi → ${to} | MessageId: ${result.messageId}`);
+    }
 }
 
 export const mailService = new MailService();

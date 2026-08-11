@@ -50,4 +50,16 @@ describe('FormSubmissionService.validateAndCreate', () => {
         const result = await service.validateAndCreate('f2', { hoTen: 'Nguyễn Văn A' });
         expect(result.data).toEqual({ hoTen: 'Nguyễn Văn A' });
     });
+
+    // Task 6: form.event.ts (listener 'form.submitted' gửi email khi Form có notifyEmail) chỉ
+    // đăng ký khi module đó được import -- test này không import nó, nên chỉ xác nhận payload
+    // publish đúng shape (formId + data), KHÔNG xác nhận việc gửi email thật (đó thuộc phạm vi
+    // form.event.ts, không phải FormSubmissionService).
+    it('publish event form.submitted kèm đúng payload sau khi tạo submission thành công', async () => {
+        const service = makeService(FORM);
+        const publishSpy = jest.spyOn(require('@/core/infrastructure/events/eventBus').eventBus, 'publishAsync');
+        await service.validateAndCreate('f1', { email: 'a@b.com', note: 'abc' });
+        expect(publishSpy).toHaveBeenCalledWith('form.submitted', expect.objectContaining({ formId: 'f1', data: { email: 'a@b.com', note: 'abc' } }));
+        publishSpy.mockRestore();
+    });
 });

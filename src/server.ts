@@ -22,6 +22,7 @@ import {
 } from '@apollo/server/plugin/landingPage/default';
 
 import './modules/admin/infrastructure/events/admin.event';
+import './modules/form/infrastructure/events/form.event';
 import './core/infrastructure/http/controllers/importJob.controller';
 import { Logger } from './core/shared/utils/Logger';
 import { AppDataSource, initializeDatabase, closeDatabase } from './config/database.config';
