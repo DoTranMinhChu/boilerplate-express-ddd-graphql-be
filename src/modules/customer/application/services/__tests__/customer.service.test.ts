@@ -32,6 +32,12 @@ describe('CustomerService.registerCustomer', () => {
         await expect(service.registerCustomer('a@b.com', '123456')).rejects.toThrow(ConflictException);
     });
 
+    it('throw BadRequestException khi password đăng ký quá ngắn (nhất quán với resetPasswordByToken)', async () => {
+        const { service, customerRepository } = makeService();
+        await expect(service.registerCustomer('a@b.com', '12345')).rejects.toThrow(BadRequestException);
+        expect(customerRepository.findOneByCondition).not.toHaveBeenCalled();
+    });
+
     it('tạo customer với authProvider=PASSWORD, trả kèm token CUSTOMER-scope, không lộ password', async () => {
         const { service } = makeService();
         jest.spyOn(authService, 'generateToken').mockReturnValue('signed.jwt.token');

@@ -25,6 +25,12 @@ export class CustomerService extends BaseService<CustomerEntity> {
     }
 
     async registerCustomer(email: string, password: string, fullname?: string, phone?: string): Promise<{ customer: CustomerEntity; token: string }> {
+        // Addendum bắt buộc Task 10 (phát hiện review Task 9): registerCustomer trước đây KHÔNG
+        // chặn password ngắn trong khi resetPasswordByToken (dưới) đã chặn <6 ký tự -- validate
+        // không nhất quán giữa 2 luồng set password của cùng entity. Mirror check của
+        // resetPasswordByToken/AdminService.resetPassword, fail-fast trước khi query DB.
+        if (password.length < 6) throw new BadRequestException('Mật khẩu phải có ít nhất 6 ký tự', EErrorCode.AUTH_PASSWORD_TOO_SHORT);
+
         const existing = await this.customerRepository.findOneByCondition({ where: { email } });
         if (existing) throw new ConflictException(`Email "${email}" đã được đăng ký.`, EErrorCode.AUTH_EMAIL_TAKEN);
 

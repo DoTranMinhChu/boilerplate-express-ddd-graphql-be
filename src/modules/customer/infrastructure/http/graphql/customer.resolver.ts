@@ -1,14 +1,17 @@
 import { BaseGraphQLResolver } from "@/core/infrastructure/http/baseGraphql.resolver";
-import { GQLAuthorized, Args, GQLCurrentUser, GQLQuery, Mutation, Resolver, Query} from "@/core/shared/decorators/graphQL.decorators";
+import { GQLAuthorized, Args, GQLCurrentUser, GQLQuery, Mutation, Resolver, Query, GQLPublic, Context } from "@/core/shared/decorators/graphQL.decorators";
 import { IAccount, CACHE_TTL } from '@/core/shared/types/common.types';
 import { ERole, ERoleScrope } from "@/core/shared/enums/account.enum";
 import { CustomerService } from "@/modules/customer/application/services/customer.service";
 import { CustomerEntity } from "@/modules/customer/domain/entities/customer.entity";
 import { GQLPaginationArgs, PaginatedResponse } from "@/core/shared/dto/pagination.dto";
 import { CreateCustomerInput, UpdateCustomerInput } from "@/modules/customer/application/dto/customer.dto";
+import { RegisterCustomerInput, LoginCustomerInput, CustomerLoginData } from "@/modules/customer/application/dto/customerAuth.dto";
 import { GqlSelectOptions } from "@/core/shared/types/graphql/types";
 import { FindOneOptions } from "typeorm";
 import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
+import { assertAuthRateLimit } from "@/core/infrastructure/http/authRateLimiter";
+import { IGraphQLContext } from "@/core/infrastructure/http/middleware/auth.middleware";
 const CustomerPagination = PaginatedResponse(CustomerEntity)
 
 @Resolver(CustomerEntity)
@@ -67,6 +70,64 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
     async deleteCustomer(@Args('id') id: string, @GQLCurrentUser() account: IAccount) {
         const options: FindOneOptions<CustomerEntity> = { where: { id } }
         return await this.customerService.softDeleteByCondition(options);
+    }
+
+    // ── Public auth flow (Phase 4, mục 3, Task 10) ──────────────────────────
+    // 4 mutation dưới đây PUBLIC (không cần token) -- rate-limit riêng bằng
+    // assertAuthRateLimit (giống registerMerchant/merchantLogin/merchantForgotPassword/
+    // merchantResetPassword ở merchant.resolver.ts) vì đây là entrypoint gọi bcrypt
+    // (CPU-bound) + gửi email, không có route middleware chung nào chặn được (mọi
+    // mutation GraphQL đều đi qua 1 endpoint POST /graphql).
+
+    @Mutation('registerCustomer', { returnType: CustomerLoginData })
+    @GQLPublic()
+    async registerCustomer(
+        @Args('data', { type: RegisterCustomerInput }) data: RegisterCustomerInput,
+        @Context() context: IGraphQLContext,
+    ) {
+        assertAuthRateLimit(context.req, { key: 'registerCustomer', max: 5, windowMs: 60_000 });
+        return this.customerService.registerCustomer(data.email, data.password, data.fullname, data.phone);
+    }
+
+    @Mutation('loginCustomer', { returnType: CustomerLoginData })
+    @GQLPublic()
+    async loginCustomer(
+        @Args('data', { type: LoginCustomerInput }) data: LoginCustomerInput,
+        @Context() context: IGraphQLContext,
+    ) {
+        assertAuthRateLimit(context.req, { key: 'loginCustomer', max: 8, windowMs: 60_000 });
+        return this.customerService.loginCustomer(data.email, data.password);
+    }
+
+    @Query('customerGetMe', { returnType: CustomerEntity })
+    @GQLAuthorized([ERoleScrope.CUSTOMER])
+    async customerGetMe(@GQLCurrentUser() user: IAccount) {
+        const options: FindOneOptions<CustomerEntity> = { where: { id: user.id } };
+        return this.customerService.findOneByCondition(options);
+    }
+
+    @Mutation('requestCustomerPasswordReset', { returnType: Object })
+    @GQLPublic()
+    async requestCustomerPasswordReset(
+        @Args('email') email: string,
+        @Args('domain') domain: string,
+        @Context() context: IGraphQLContext,
+    ): Promise<{ success: boolean }> {
+        assertAuthRateLimit(context.req, { key: 'requestCustomerPasswordReset', max: 5, windowMs: 60_000 });
+        await this.customerService.requestPasswordReset(email, domain);
+        return { success: true };
+    }
+
+    @Mutation('resetCustomerPasswordByToken', { returnType: Object })
+    @GQLPublic()
+    async resetCustomerPasswordByToken(
+        @Args('token') token: string,
+        @Args('newPassword') newPassword: string,
+        @Context() context: IGraphQLContext,
+    ): Promise<{ success: boolean }> {
+        assertAuthRateLimit(context.req, { key: 'resetCustomerPasswordByToken', max: 8, windowMs: 60_000 });
+        await this.customerService.resetPasswordByToken(token, newPassword);
+        return { success: true };
     }
 }
 
