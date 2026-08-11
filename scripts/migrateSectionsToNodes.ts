@@ -36,46 +36,78 @@ async function main() {
         console.log(`[migrate] Page ${page.id} (${page.internalName}): ${sections.length} section(s)`);
         if (dryRun) continue;
 
-        const root = nodeRepo.create({
-            pageId: page.id,
-            type: 'frame',
-            layoutMode: 'flow',
-            order: 0,
-        });
-        await nodeRepo.save(root);
+        // Fix Important (Task 9 review): bọc toàn bộ ghi của 1 page (root + mọi child +
+        // set page.rootNodeId) trong 1 transaction. Không có transaction, crash giữa
+        // chừng (vd lỗi ở section thứ N) để lại root+child ĐÃ LƯU nhưng page.rootNodeId
+        // vẫn null -> chạy lại script KHÔNG skip page này (check "if (page.rootNodeId)"
+        // vẫn false) -> tạo THÊM 1 root Node nữa, biến root+child cũ thành rác orphan
+        // vĩnh viễn trong page_node. Transaction đảm bảo either toàn bộ page migrate
+        // xong, hoặc không có gì được ghi (an toàn để chạy lại từ đầu).
+        await AppDataSource.transaction(async (trx) => {
+            const trxNodeRepo = trx.getRepository(NodeEntity);
+            const trxPageRepo = trx.getRepository(PageEntity);
 
-        for (const section of sections) {
-            const child = nodeRepo.create({
+            const root = trxNodeRepo.create({
                 pageId: page.id,
-                parentId: root.id,
-                order: section.order,
-                type: `legacy:${section.type}`,
+                type: 'frame',
                 layoutMode: 'flow',
-                style: {},
-                layout: {},
-                props: {
-                    content: section.content,
-                    dataSource: section.dataSource,
-                    fieldMapping: section.fieldMapping,
-                    layoutPreset: section.layoutPreset,
-                    theme: section.theme,
-                    enabled: section.enabled,
-                },
-                dataBinding: { mode: 'static' },
-                visibilityRules: section.visibilityRules && Object.keys(section.visibilityRules).length
-                    ? section.visibilityRules
-                    : undefined,
-                responsiveOverrides: section.responsiveSettings ?? {},
-                // animation (AnimationLayer[]) chưa map được sang AnimationTimeline (Phase 3
-                // chưa tồn tại) — giữ nguyên trong props để không mất dữ liệu, Phase 3 sẽ
-                // viết 1 script chuyển đổi riêng khi AnimationTimeline ra đời.
+                order: 0,
             });
-            (child.props as any).legacyAnimation = section.animation ?? [];
-            await nodeRepo.save(child);
-        }
+            await trxNodeRepo.save(root);
 
-        page.rootNodeId = root.id;
-        await pageRepo.save(page);
+            for (const section of sections) {
+                const child = trxNodeRepo.create({
+                    pageId: page.id,
+                    parentId: root.id,
+                    order: section.order,
+                    type: `legacy:${section.type}`,
+                    layoutMode: 'flow',
+                    // Fix Critical (Task 9 review): section.style (theme/accentColor/
+                    // textColor/backgroundColor/spacing) trước đây bị bỏ sót hoàn toàn
+                    // (hard-code style: {}) -- không map vào đâu cả, mất mọi tuỳ biến
+                    // màu/spacing người dùng đã đặt trên Section. Giữ nguyên trong
+                    // props.legacyStyle (cùng cách xử lý với animation) — node.style
+                    // (StyleObject shape mới) để trống, không suy diễn tự động.
+                    style: {},
+                    layout: {},
+                    props: {
+                        content: section.content,
+                        dataSource: section.dataSource,
+                        fieldMapping: section.fieldMapping,
+                        layoutPreset: section.layoutPreset,
+                        theme: section.theme,
+                        enabled: section.enabled,
+                        legacyStyle: section.style ?? {},
+                        // Fix Important (Task 9 review): Section.visibilityRules
+                        // ({desktop,tablet,mobile,startAt,endAt}) và
+                        // Section.responsiveSettings ({mobileOrder?,hideOnMobile?,
+                        // spacing}) có shape HOÀN TOÀN KHÁC Node.visibilityRules
+                        // ({logic,conditions}) và Node.responsiveOverrides
+                        // ({tablet?,mobile?:{style,layout}}). Copy thẳng object cũ vào
+                        // field Node mới khiến code Phase 1+ đọc field mới sẽ không
+                        // thấy gì (coi như "luôn hiện"/"không override"), silently bỏ
+                        // qua logic ẩn/hiện và responsive cũ — cùng cách xử lý với
+                        // animation, giữ raw trong props để không mất dữ liệu, Phase 3+
+                        // viết converter riêng khi cần.
+                        legacyVisibilityRules: section.visibilityRules ?? {},
+                        legacyResponsiveSettings: section.responsiveSettings ?? {},
+                    },
+                    dataBinding: { mode: 'static' },
+                    // node.visibilityRules/responsiveOverrides để trống — KHÔNG gán raw
+                    // Section data vào (xem comment legacyVisibilityRules/
+                    // legacyResponsiveSettings phía trên).
+                    responsiveOverrides: {},
+                    // animation (AnimationLayer[]) chưa map được sang AnimationTimeline (Phase 3
+                    // chưa tồn tại) — giữ nguyên trong props để không mất dữ liệu, Phase 3 sẽ
+                    // viết 1 script chuyển đổi riêng khi AnimationTimeline ra đời.
+                });
+                (child.props as any).legacyAnimation = section.animation ?? [];
+                await trxNodeRepo.save(child);
+            }
+
+            page.rootNodeId = root.id;
+            await trxPageRepo.save(page);
+        });
         migrated++;
     }
 
