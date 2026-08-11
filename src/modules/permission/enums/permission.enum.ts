@@ -93,6 +93,9 @@ export enum EPermission {
     // ─── CMS: Menu / navigation ───────────────────────────────────────────────
     MENU_MANAGE = 'MENU_MANAGE',
 
+    // ─── CMS: Form builder (form công khai + submission) ────────────────────
+    FORM_MANAGE = 'FORM_MANAGE',
+
     // ─── Site settings: đa ngôn ngữ (SiteLocaleSettings singleton) ───────────
     SITE_LOCALE_SETTINGS_MANAGE = 'SITE_LOCALE_SETTINGS_MANAGE',
 }
@@ -172,6 +175,8 @@ export const PERMISSION_META: Record<EPermission, IPermissionMeta> = {
 
     [EPermission.MENU_MANAGE]: { label: 'Manage navigation menus', resourceGroup: 'menu' },
 
+    [EPermission.FORM_MANAGE]: { label: 'Manage forms and submissions', resourceGroup: 'contentType' },
+
     [EPermission.SITE_LOCALE_SETTINGS_MANAGE]: { label: 'Manage site locale settings (i18n)', resourceGroup: 'siteLocaleSettings' },
 };
 
@@ -240,8 +245,8 @@ export const PERMISSION_GROUPS: IPermissionGroup[] = [
         ],
     },
     {
-        key: 'contentType', label: 'Content Types', description: 'Define custom Object Types and their fields',
-        permissions: [EPermission.CONTENT_TYPE_MANAGE],
+        key: 'contentType', label: 'Content Types', description: 'Define custom Object Types and their fields, and manage forms/submissions',
+        permissions: [EPermission.CONTENT_TYPE_MANAGE, EPermission.FORM_MANAGE],
     },
     {
         key: 'taxonomy', label: 'Taxonomies', description: 'Manage shared categories/tags',
