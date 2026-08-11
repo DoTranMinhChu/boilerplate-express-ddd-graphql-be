@@ -8,14 +8,21 @@ import { EAuthProvider } from '@/modules/customer/domain/enums/customer.enum';
 @ObjectType('Customer')
 @Entity('customer')
 export class CustomerEntity extends BaseEntity {
-    @Field()
-    @Column({ name: 'tenantId' })
+    // NULLABLE (khác thiết kế NOT NULL ban đầu của Task 7) -- phát hiện lúc QA thủ công Task 9's
+    // registerCustomer thật: Customer membership (Phase 4 mục 3) là đăng ký CÔNG KHAI, không có
+    // context tenant nào để gán (registerCustomer/loginCustomer không nhận tenantId, đúng interface
+    // Task 9 brief) -- cột NOT NULL kế thừa từ khuôn boilerplate multi-tenant Merchant/Agency/Tenant
+    // (nơi tenantId luôn có sẵn qua identity switch) không áp dụng cho luồng khách tự đăng ký này.
+    // Bảng customer hiện có 0 row (xem comment ở authProvider dưới) -- nới NOT NULL -> nullable an
+    // toàn 100%, không có row cũ nào bị ảnh hưởng.
+    @Field({ type: String, nullable: true })
+    @Column({ name: 'tenantId', nullable: true })
     @Index()
-    tenantId!: string;
+    tenantId?: string;
 
-    @ManyToOne(() => TenantEntity)
+    @ManyToOne(() => TenantEntity, { nullable: true })
     @JoinColumn({ name: 'tenantId' })
-    tenant!: TenantEntity;
+    tenant?: TenantEntity;
 
     @Field({ type: String, nullable: true })
     @Column({ nullable: true })

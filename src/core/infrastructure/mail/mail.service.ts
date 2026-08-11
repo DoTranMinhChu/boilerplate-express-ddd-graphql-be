@@ -92,7 +92,7 @@ export class MailService {
         to: string;
         username: string;
         resetToken: string;
-        accountType: 'admin' | 'merchant';
+        accountType: 'admin' | 'merchant' | 'customer';
         /** Origin đầy đủ của FE (vd: "https://admin.example.com") */
         origin: string;
         config: EmailConfigEntity;
