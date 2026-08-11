@@ -7,7 +7,10 @@ import { BadRequestException, ConflictException, UnauthorizedException } from '@
 import { EErrorCode } from '@/core/shared/enums/errorCode.enum';
 import { ERoleScrope } from '@/core/shared/enums/account.enum';
 import { mailService } from '@/core/infrastructure/mail/mail.service';
+import { Logger } from '@/core/shared/utils/Logger';
 import { EmailConfigService } from '@/modules/emailConfig/application/services/emailConfig.service';
+
+const logger = Logger.getInstance();
 import { CustomerEntity } from '../../domain/entities/customer.entity';
 import { CustomerRepository } from '../../infrastructure/persistence/customer.repository';
 import { EAuthProvider } from '../../domain/enums/customer.enum';
@@ -97,10 +100,22 @@ export class CustomerService extends BaseService<CustomerEntity> {
         const expires = new Date(Date.now() + 30 * 60 * 1000);
         await this.customerRepository.updateById(customer.id, { resetPasswordToken: hashedToken, resetPasswordExpires: expires } as any);
 
-        const emailConfig = await this.emailConfigService.findForDomain(domain);
-        await mailService.sendPasswordResetEmail({
-            to: customer.email, username: customer.email, resetToken, accountType: 'customer', origin: domain, config: emailConfig,
-        });
+        // Fix Important (Task 13 review): PHẢI bọc try/catch -- nếu KHÔNG có EmailConfig khả dụng
+        // (findForDomain throw NotFoundException, EErrorCode.MAIL_CONFIG_NOT_FOUND) hoặc
+        // sendPasswordResetEmail lỗi (SMTP sai cấu hình...), lỗi throw ra NGOÀI hàm này sẽ lộ NGƯỢC
+        // LẠI đúng điều dòng comment phía trên vừa tránh: gọi với email TỒN TẠI -> lỗi hạ tầng lộ
+        // ra client; gọi với email KHÔNG tồn tại -> return êm re ở dòng "if (!customer) return"
+        // phía trên -- 2 kết quả PHÂN BIỆT ĐƯỢC qua network response, đúng lỗ hổng enumeration mà
+        // thiết kế "không throw" này vốn muốn chặn. Nuốt lỗi + log server-side, LUÔN trả về êm
+        // (giống hành vi khi email không tồn tại) bất kể nguyên nhân lỗi là gì.
+        try {
+            const emailConfig = await this.emailConfigService.findForDomain(domain);
+            await mailService.sendPasswordResetEmail({
+                to: customer.email, username: customer.email, resetToken, accountType: 'customer', origin: domain, config: emailConfig,
+            });
+        } catch (err) {
+            logger.error(`[Customer] requestPasswordReset: gửi email thất bại cho customerId=${customer.id} — ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
 
     async resetPasswordByToken(token: string, newPassword: string): Promise<void> {

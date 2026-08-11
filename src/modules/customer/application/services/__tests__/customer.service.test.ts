@@ -129,6 +129,25 @@ describe('CustomerService.requestPasswordReset', () => {
             resetPasswordExpires: expect.any(Date),
         }));
     });
+
+    // Fix Important (Task 13 review): TRƯỚC fix, lỗi hạ tầng (vd không có EmailConfig khả dụng)
+    // throw RA NGOÀI hàm này khi email TỒN TẠI, trong khi email KHÔNG tồn tại luôn resolve êm (dòng
+    // "if (!customer) return" phía trên) -- 2 kết quả PHÂN BIỆT được qua network response, đúng
+    // lỗ hổng enumeration mà thiết kế "không throw" của hàm này vốn muốn chặn. Email tồn tại NHƯNG
+    // gặp lỗi hạ tầng PHẢI resolve êm giống hệt trường hợp email không tồn tại.
+    it('email TỒN TẠI nhưng findForDomain throw (không có EmailConfig khả dụng) -- vẫn resolve êm, KHÔNG throw (tránh lộ enumeration qua lỗi hạ tầng)', async () => {
+        const { service } = makeService(
+            { findOneByCondition: jest.fn(async () => ({ id: 'c1', email: 'a@b.com' })) },
+            { findForDomain: jest.fn(async () => { throw new Error('MAIL_CONFIG_NOT_FOUND'); }) },
+        );
+        await expect(service.requestPasswordReset('a@b.com', 'https://app.example.com')).resolves.toBeUndefined();
+    });
+
+    it('email TỒN TẠI nhưng sendPasswordResetEmail throw (SMTP lỗi) -- vẫn resolve êm, KHÔNG throw', async () => {
+        const { service } = makeService({ findOneByCondition: jest.fn(async () => ({ id: 'c1', email: 'a@b.com' })) });
+        jest.spyOn(mailService, 'sendPasswordResetEmail').mockRejectedValue(new Error('SMTP lỗi'));
+        await expect(service.requestPasswordReset('a@b.com', 'https://app.example.com')).resolves.toBeUndefined();
+    });
 });
 
 describe('CustomerService.loginWithGoogle', () => {
