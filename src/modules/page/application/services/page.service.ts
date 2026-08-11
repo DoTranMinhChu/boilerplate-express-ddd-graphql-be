@@ -33,9 +33,30 @@ export class PageService extends BaseService<PageEntity> {
         }
     }
 
+    /**
+     * Chặn CHIỀU 1 của rủi ro "path trang tĩnh trùng mã locale" (Phase 3 mục 3, xem
+     * 2026-08-10-phase3-menu-routing-i18n.md review Task 14) -- nếu admin tạo/sửa Page qua
+     * `createPage`/`updatePage` (KHÔNG qua `createTranslation`, nơi prefix "/{locale}" được tự
+     * sinh và luôn hợp lệ) với segment đầu của path trùng CHÍNH XÁC 1 locale đã enable (khác
+     * `defaultLocale` -- defaultLocale không có prefix nên không mơ hồ), `stripLocalePrefix` ở
+     * `findByExactPath`/`findByParamPattern` sẽ diễn giải segment đó là prefix locale và cắt bỏ,
+     * khiến page tĩnh KHÔNG BAO GIỜ truy cập được đúng path đã lưu (bị "shadow"). Chặn ngay lúc
+     * lưu để admin đổi path hoặc dùng "+ Thêm bản dịch" thay vì tạo path trùng thủ công.
+     */
+    private async assertPathNotLocaleShadow(path: string): Promise<void> {
+        const settings = await this.siteLocaleSettingsService.getSettings();
+        const firstSegment = path.replace(/^\//, '').split('/')[0];
+        if (firstSegment && firstSegment !== settings.defaultLocale && settings.enabledLocales.includes(firstSegment)) {
+            throw new ConflictException(
+                `Đường dẫn bắt đầu bằng mã ngôn ngữ đã kích hoạt ("${firstSegment}") — dễ gây nhầm với prefix đa ngôn ngữ, vui lòng đổi đường dẫn hoặc dùng "+ Thêm bản dịch" để tạo bản dịch đúng cách.`,
+            );
+        }
+    }
+
     async createPage(data: DeepPartial<PageEntity>): Promise<PageEntity> {
         const path = normalizePagePath(data.path as string);
         assertValidPagePath(path);
+        await this.assertPathNotLocaleShadow(path);
         await this.assertPathAvailable(path);
         return this.create({ ...data, path });
     }
@@ -98,6 +119,7 @@ export class PageService extends BaseService<PageEntity> {
         if (data.path && data.path !== current.path) {
             newPath = normalizePagePath(data.path as string);
             assertValidPagePath(newPath);
+            await this.assertPathNotLocaleShadow(newPath);
             await this.assertPathAvailable(newPath, id);
         }
 
