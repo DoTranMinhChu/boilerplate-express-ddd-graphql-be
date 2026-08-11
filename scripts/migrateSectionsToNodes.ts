@@ -62,14 +62,18 @@ async function main() {
                     order: section.order,
                     type: `legacy:${section.type}`,
                     layoutMode: 'flow',
-                    // Fix Critical (Task 9 review): section.style (theme/accentColor/
-                    // textColor/backgroundColor/spacing) trước đây bị bỏ sót hoàn toàn
-                    // (hard-code style: {}) -- không map vào đâu cả, mất mọi tuỳ biến
-                    // màu/spacing người dùng đã đặt trên Section. NodeEntity.style LÀ
-                    // field styling mà consumer mới (StyleTab/NodeStyleTab) sẽ đọc, nên
-                    // copy thẳng section.style vào đây (không phải props) — shape của
-                    // Section.style đã tương thích, không cần converter.
-                    style: section.style ?? {},
+                    // Fix (đính chính lại fix trước): section.style KHÔNG tương thích
+                    // shape với Node.style — Section.style là {theme, accentColor?,
+                    // textColor?, backgroundColor?, spacing?} (flat, xem comment
+                    // section.entity.ts:73), còn Node.style là StyleObject FE mới
+                    // ({spacing:{padding,margin,gap}, size, typography, background:
+                    // {type,value,...}, border, shadow, effects, transform} — xem
+                    // node.types.ts Task 10). Gán thẳng section.style vào node.style sẽ
+                    // để lại object với field name hoàn toàn khác những gì
+                    // applyNodeStyle.ts (Task 14) sẽ đọc — im lặng không áp style nào cả,
+                    // đúng lớp lỗi tương tự visibilityRules/responsiveSettings phía dưới.
+                    // Giữ nguyên trong props.legacyStyle, để node.style trống.
+                    style: {},
                     layout: {},
                     props: {
                         content: section.content,
@@ -78,6 +82,7 @@ async function main() {
                         layoutPreset: section.layoutPreset,
                         theme: section.theme,
                         enabled: section.enabled,
+                        legacyStyle: section.style ?? {},
                         // Fix Important (Task 9 review): Section.visibilityRules
                         // ({desktop,tablet,mobile,startAt,endAt}) và
                         // Section.responsiveSettings ({mobileOrder?,hideOnMobile?,
