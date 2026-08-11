@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { EHttpMethod, METADATA_KEYS, ICacheOptions } from '../types/common.types';
-import { ERole } from '../enums/account.enum';
+import { ERole, ERoleScrope } from '../enums/account.enum';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // REST API Decorators
@@ -161,13 +161,19 @@ function createRouteDecorator(method: EHttpMethod, path: string): MethodDecorato
 // ─── Auth / Cache decorators ───────────────────────────────────────────────────
 
 /**
- * Yêu cầu xác thực và tùy chọn roles.
+ * Yêu cầu xác thực và tùy chọn roles/scope. Cùng type union `(ERole | ERoleScrope)[]` với
+ * `GQLAuthorized` (GraphQL) -- cả 2 đều đi tới CÙNG `rbacService.authorizeRoles`, đã hỗ trợ mảng
+ * scope-only (`isPureScopeArray`, xem RBAC.service.ts, thêm ở Phase 4 Task 9 security fix) từ khi
+ * `@GQLAuthorized([ERoleScrope.ADMIN, ...])` cần dùng cho REST tương tự (xem
+ * `BaseRestController`'s 5 method CRUD chuẩn — đổi từ bare `@Authorized()` sau khi phát hiện
+ * scope CUSTOMER mới cũng lọt qua check "any authenticated scope" này).
  *
  * @example
  * @Authorized()                            // Chỉ cần đăng nhập
  * @Authorized([ERole.TENANT_OWNER])        // Phải là TENANT_OWNER
+ * @Authorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT]) // Bất kỳ role nào, miễn scope ADMIN/MERCHANT
  */
-export function Authorized(roles?: ERole[]): MethodDecorator {
+export function Authorized(roles?: (ERole | ERoleScrope)[]): MethodDecorator {
     return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
         Reflect.defineMetadata(METADATA_KEYS.AUTHORIZED, true, target, propertyKey);
         if (roles?.length) {

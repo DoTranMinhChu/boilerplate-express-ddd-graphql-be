@@ -6,6 +6,20 @@ import { ERoleScrope } from '@/core/shared/enums/account.enum';
 import { ForbiddenException } from '@/core/domain/exceptions/appException';
 import { EErrorCode } from '@/core/shared/enums/errorCode.enum';
 
+// Fix Critical (Phase 4 Task 9 security review, residual từ addendum GraphQL): 5 method CRUD
+// chuẩn dưới đây trước là bare `@Authorized()` ("chỉ cần đăng nhập, BẤT KỲ scope nào") — sau khi
+// thêm scope CUSTOMER (Task 8), MỌI subclass kế thừa nguyên (dù có override method hay không --
+// override KHÔNG tự khai lại @Authorized() vẫn kế thừa metadata AUTHORIZED/ROLES từ class này qua
+// prototype chain của reflect-metadata, đã verify bằng cách đọc merchant.controller.ts's getAll/
+// getById override — không có decorator riêng nào) sẽ vô tình mở 16 endpoint REST (customer/
+// merchant/tenant/agency/agencyAccount/tenantAccount/media/mediaSet) cho JWT scope CUSTOMER --
+// bao gồm dump toàn bộ Customer (PII), và rò password hash của Merchant (MerchantEntity.password
+// không có select:false). Đây LÀ CÙNG LỚP LỖ HỔNG addendum GraphQL đã vá (13 site
+// @GQLAuthorized()) nhưng addendum đó chỉ grep *.resolver.ts, bỏ sót tầng REST. Khôi phục đúng
+// hành vi TRƯỚC KHI scope CUSTOMER tồn tại: chỉ 4 scope nội bộ cũ được authorize, không đổi gì
+// khác (không role cụ thể nào bị siết thêm, ADMIN/MERCHANT/AGENCY/TENANT vẫn qua như cũ).
+const INTERNAL_SCOPES = [ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT];
+
 /**
  * Base REST Controller với CRUD endpoints chuẩn
  * 
@@ -53,7 +67,7 @@ export abstract class BaseRestController<T extends BaseEntity> {
      * Body: CreateDto
      */
     @Post()
-    @Authorized()
+    @Authorized(INTERNAL_SCOPES)
     async create(
         @Body() data: any,
         @CurrentUser() user: IAccount
@@ -75,7 +89,7 @@ export abstract class BaseRestController<T extends BaseEntity> {
      * GET /admins?page=1&limit=10&filter={"status":"active"}&search=john&searchFields=name,email&sort={"createdAt":"DESC"}
      */
     @Get()
-    @Authorized()
+    @Authorized(INTERNAL_SCOPES)
     @Cache({ ttl: CACHE_TTL.SHORT })
     async getAll(@Query() query: any, @CurrentUser() user: IAccount) {
         // Parse pagination params
@@ -95,7 +109,7 @@ export abstract class BaseRestController<T extends BaseEntity> {
      * GET /:id - Get by ID
      */
     @Get('/:id')
-    @Authorized()
+    @Authorized(INTERNAL_SCOPES)
     @Cache({ ttl: CACHE_TTL.SHORT })
     async getById(@Param('id') id: string, @CurrentUser() user: IAccount) {
         const scope = this.buildScope(user);
@@ -110,7 +124,7 @@ export abstract class BaseRestController<T extends BaseEntity> {
      * Body: UpdateDto
      */
     @Put('/:id')
-    @Authorized()
+    @Authorized(INTERNAL_SCOPES)
     async updateOne(
         @Param('id') id: string,
         @Body() data: any,
@@ -125,7 +139,7 @@ export abstract class BaseRestController<T extends BaseEntity> {
      * DELETE /:id - Soft delete entity
      */
     @Delete('/:id')
-    @Authorized()
+    @Authorized(INTERNAL_SCOPES)
     async deleteOne(
         @Param('id') id: string,
         @CurrentUser() user: IAccount
