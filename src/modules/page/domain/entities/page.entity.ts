@@ -114,4 +114,16 @@ export class PageEntity extends BaseEntity {
     @Field({ type: GraphQLMixed, nullable: true })
     @Column({ type: 'jsonb', default: {} })
     seoFieldMapping?: Record<string, string>;
+
+    /** Root Node của cây Node-Tree mới (thay Section[]) — null nếu page chưa
+     * được di trú (xem Task 9) hoặc chưa dùng Node-Tree. */
+    @Field({ type: String, nullable: true })
+    @Column({ nullable: true })
+    rootNodeId?: string;
+
+    /** Page-level context binding — entry resolve từ route param trở thành
+     * context entry cho TOÀN BỘ cây Node của trang. Xem spec §3.1. */
+    @Field({ type: GraphQLMixed, nullable: true })
+    @Column({ type: 'jsonb', nullable: true })
+    dataBinding?: Record<string, any>;
 }
