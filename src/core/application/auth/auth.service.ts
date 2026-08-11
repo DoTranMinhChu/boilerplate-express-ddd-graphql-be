@@ -44,11 +44,18 @@ export interface ITenantTokenPayload {
     source?: EAccountSource; // AGENCY | TENANT
     roles: ERole[];       // [TENANT_OWNER | TENANT_MANAGER | TENANT_STAFF]
 }
+export interface ICustomerTokenPayload {
+    roleScope: ERoleScrope.CUSTOMER;
+    customerId: string;
+    username: string; // email
+}
+
 export type IJwtPayload =
     | IAdminTokenPayload
     | IMerchantTokenPayload
     | IAgencyTokenPayload
-    | ITenantTokenPayload;
+    | ITenantTokenPayload
+    | ICustomerTokenPayload;
 
 // ─────────────────────────────────────────────────────────────────
 // IAccount — object đi xuyên suốt mọi request/resolver
@@ -66,6 +73,7 @@ export const isAdminPayload = (p: IJwtPayload): p is IAdminTokenPayload => p.rol
 export const isMerchantPayload = (p: IJwtPayload): p is IMerchantTokenPayload => p.roleScope === ERoleScrope.MERCHANT;
 export const isAgencyPayload = (p: IJwtPayload): p is IAgencyTokenPayload => p.roleScope === ERoleScrope.AGENCY;
 export const isTenantPayload = (p: IJwtPayload): p is ITenantTokenPayload => p.roleScope === ERoleScrope.TENANT;
+export const isCustomerPayload = (p: IJwtPayload): p is ICustomerTokenPayload => p.roleScope === ERoleScrope.CUSTOMER;
 // ─────────────────────────────────────────────────────────────────
 // AuthService
 // ─────────────────────────────────────────────────────────────────
@@ -170,6 +178,16 @@ export class AuthService {
                 tenantId: payload.tenantId,
                 agencyId: payload.agencyId,    // undefined nếu TENANT source
                 source: payload.source,
+            };
+        }
+
+        if (isCustomerPayload(payload)) {
+            return {
+                id: payload.customerId,
+                customerId: payload.customerId,
+                username: payload.username,
+                roleScope: payload.roleScope,
+                roles: [],
             };
         }
         throw new UnauthorizedException('Payload token không hợp lệ', EErrorCode.AUTH_TOKEN_INVALID);

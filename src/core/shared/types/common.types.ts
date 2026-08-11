@@ -69,6 +69,9 @@ export interface IAccount {
   // ── Admin only ────────────────────────────────────────────
   accountId?: string;
 
+  // ── Customer only (Phase 4, mục 3) ─────────────────────────
+  customerId?: string;
+
 }
 
 export interface IAuthRequest extends Request {
