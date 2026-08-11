@@ -36,4 +36,18 @@ describe('FormSubmissionService.validateAndCreate', () => {
         const result = await service.validateAndCreate('f1', { email: 'a@b.com', note: 'abc' });
         expect(result.data).toEqual({ email: 'a@b.com', note: 'abc' });
     });
+
+    // Fix Critical (QA trình duyệt Phase 4 Task 5 phát hiện): FieldDefinitionArrayInput (FE) luôn
+    // gửi `maxLength: null` (không omit key) cho field số chưa điền -- `!== undefined` cũ coi
+    // `null` là "đã set", rồi `value.length > null` bị JS coerce thành `value.length > 0`, khiến
+    // MỌI giá trị không rỗng bị từ chối dù admin chưa từng cấu hình giới hạn nào.
+    it('field maxLength=null (như FE thật gửi khi chưa cấu hình) KHÔNG chặn giá trị không rỗng', async () => {
+        const formWithNullBounds = {
+            id: 'f2',
+            fields: [{ key: 'hoTen', label: 'Họ tên', type: 'TEXT', required: true, minLength: null, maxLength: null }],
+        };
+        const service = makeService(formWithNullBounds);
+        const result = await service.validateAndCreate('f2', { hoTen: 'Nguyễn Văn A' });
+        expect(result.data).toEqual({ hoTen: 'Nguyễn Văn A' });
+    });
 });

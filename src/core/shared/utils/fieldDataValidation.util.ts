@@ -18,10 +18,15 @@ export function validateFieldData(fields: FieldDefinitionType[], data: Record<st
         }
         if (value === undefined || value === null) continue;
         if ((f.type === EFieldType.TEXT || f.type === EFieldType.RICHTEXT) && typeof value === 'string') {
-            if (f.minLength !== undefined && value.length < f.minLength) {
+            // Fix Critical (Task 5 QA trình duyệt phát hiện): GraphQL trả `null` (KHÔNG phải
+            // `undefined`) cho field Int nullable chưa set -- `f.maxLength !== undefined` là
+            // `true` khi `f.maxLength === null`, rồi `value.length > null` bị JS coerce
+            // `null` -> `0`, khiến MỌI giá trị không rỗng "vượt quá" giới hạn không hề tồn tại.
+            // Dùng `!= null` (loose, bắt cả 2 trường hợp) thay vì `!== undefined`.
+            if (f.minLength != null && value.length < f.minLength) {
                 throw new BadRequestException(`Field "${f.key}" phải có ít nhất ${f.minLength} ký tự.`);
             }
-            if (f.maxLength !== undefined && value.length > f.maxLength) {
+            if (f.maxLength != null && value.length > f.maxLength) {
                 throw new BadRequestException(`Field "${f.key}" không được vượt quá ${f.maxLength} ký tự.`);
             }
             if (f.pattern) {

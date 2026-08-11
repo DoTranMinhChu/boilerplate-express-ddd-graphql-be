@@ -29,16 +29,23 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             switch (f.type) {
                 case EFieldType.NUMBER:
                     if (typeof value !== 'number') throw new BadRequestException(`Field "${f.key}" phải là số.`);
-                    if (f.min !== undefined && value < f.min) throw new BadRequestException(`Field "${f.key}" phải ≥ ${f.min}.`);
-                    if (f.max !== undefined && value > f.max) throw new BadRequestException(`Field "${f.key}" phải ≤ ${f.max}.`);
+                    // Fix Critical (phát hiện lúc QA trình duyệt Phase 4 Task 5, cùng lớp bug với
+                    // fieldDataValidation.util.ts được mirror từ đây): GraphQL trả `null` (KHÔNG
+                    // phải `undefined`) cho field Int nullable chưa set qua FieldDefinitionArrayInput
+                    // (FE luôn gửi kèm `null` cho field số chưa điền, không omit key) -- `f.max !==
+                    // undefined` là `true` khi `f.max === null`, rồi `value > null` bị JS coerce
+                    // `null` -> `0`, khiến MỌI số dương "vượt quá" giới hạn không hề tồn tại. Dùng
+                    // `!= null` (loose, bắt cả 2 trường hợp) thay vì `!== undefined`.
+                    if (f.min != null && value < f.min) throw new BadRequestException(`Field "${f.key}" phải ≥ ${f.min}.`);
+                    if (f.max != null && value > f.max) throw new BadRequestException(`Field "${f.key}" phải ≤ ${f.max}.`);
                     break;
                 case EFieldType.TEXT:
                 case EFieldType.RICHTEXT:
                     if (typeof value !== 'string') break; // đã có check required ở trên, giá trị sai kiểu cơ bản bỏ qua thay vì throw (nhất quán với các case khác không throw khi value không phải string)
-                    if (f.minLength !== undefined && value.length < f.minLength) {
+                    if (f.minLength != null && value.length < f.minLength) {
                         throw new BadRequestException(`Field "${f.key}" phải có ít nhất ${f.minLength} ký tự.`);
                     }
-                    if (f.maxLength !== undefined && value.length > f.maxLength) {
+                    if (f.maxLength != null && value.length > f.maxLength) {
                         throw new BadRequestException(`Field "${f.key}" không được vượt quá ${f.maxLength} ký tự.`);
                     }
                     if (f.pattern) {

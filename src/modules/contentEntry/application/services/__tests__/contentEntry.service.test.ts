@@ -225,6 +225,22 @@ describe('ContentEntryService.validateData — validate rule + TAXONOMY', () => 
         await expect(service.createEntry({ contentTypeId: 'ct-1', data: { age: 10 } } as any)).rejects.toThrow(/≥ 18/);
     });
 
+    // Fix Critical (QA trình duyệt Phase 4 Task 5 phát hiện — cùng lớp bug ở fieldDataValidation.util.ts
+    // được mirror từ hàm này): field số/độ dài chưa cấu hình -> FE gửi `null` (không omit key),
+    // `!== undefined` cũ coi `null` là "đã set" rồi so sánh bị JS coerce `null` -> 0, từ chối MỌI
+    // giá trị không rỗng/số dương dù chưa từng cấu hình giới hạn nào.
+    it('minLength/maxLength=null (chưa cấu hình) KHÔNG chặn chuỗi bất kỳ độ dài nào', async () => {
+        const service = makeValidateService([{ key: 'title', label: 'T', type: 'TEXT', minLength: null, maxLength: null }]);
+        const result = await service.createEntry({ contentTypeId: 'ct-1', data: { title: 'Một tiêu đề bình thường' } } as any);
+        expect(result).toBeTruthy();
+    });
+
+    it('min/max=null (chưa cấu hình) KHÔNG chặn số dương bất kỳ', async () => {
+        const service = makeValidateService([{ key: 'age', label: 'A', type: 'NUMBER', min: null, max: null }]);
+        const result = await service.createEntry({ contentTypeId: 'ct-1', data: { age: 42 } } as any);
+        expect(result).toBeTruthy();
+    });
+
     it('TAXONOMY nhiều giá trị phải là mảng', async () => {
         const service = makeValidateService([{ key: 'cats', label: 'C', type: 'TAXONOMY', taxonomyMultiple: true }]);
         await expect(service.createEntry({ contentTypeId: 'ct-1', data: { cats: 'not-array' } } as any)).rejects.toThrow(/danh sách/);
