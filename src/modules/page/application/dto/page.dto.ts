@@ -100,6 +100,9 @@ export class DetailPathBindingType {
 // query FE hiện có. `seo` đã merge fallback page.seo -> {} (FE tự áp template mặc định).
 // `header`/`footer` đã merge fallback page.headerPresetId/footerPresetId -> preset
 // isDefault=true -> undefined (FE tự bỏ qua chrome khi cả 2 đều thiếu).
+// `locale` (Phase 3 Task 14): locale ĐÃ RESOLVE sau khi tách prefix khỏi path request (vd
+// "/en/gioi-thieu" -> locale="en") — FE dùng để biết đang xem locale nào (bộ chuyển ngôn
+// ngữ Task 15).
 @ObjectType('PageResolverResult')
 export class PageResolverResultType {
     @Field({ type: PageEntity }) page!: PageEntity;
@@ -109,4 +112,5 @@ export class PageResolverResultType {
     @Field({ type: GraphQLMixed, nullable: true }) params?: Record<string, string>;
     @Field({ type: HeaderPresetEntity, nullable: true }) header?: HeaderPresetEntity;
     @Field({ type: FooterPresetEntity, nullable: true }) footer?: FooterPresetEntity;
+    @Field({ type: String }) locale!: string;
 }

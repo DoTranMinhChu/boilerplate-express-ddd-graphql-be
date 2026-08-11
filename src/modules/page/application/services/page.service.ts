@@ -132,14 +132,35 @@ export class PageService extends BaseService<PageEntity> {
     }
 
     /**
+     * Tách prefix locale khỏi `rawPath` TRƯỚC khi query (Phase 3 Task 14 — URL prefix theo
+     * locale trong routing). Segment đầu khớp 1 locale trong `enabledLocales` VÀ khác
+     * `defaultLocale` -> cắt bỏ prefix đó, `locale` = prefix; ngược lại (không prefix, hoặc
+     * segment đầu không phải locale hợp lệ) -> giữ nguyên path, `locale` = defaultLocale
+     * (đúng hành vi cũ, không regression — defaultLocale KHÔNG có prefix, xem `createTranslation`).
+     */
+    private async stripLocalePrefix(rawPath: string): Promise<{ path: string; locale: string }> {
+        const settings = await this.siteLocaleSettingsService.getSettings();
+        const segments = rawPath.split('/').filter(Boolean);
+        const first = segments[0];
+        if (first && settings.enabledLocales.includes(first) && first !== settings.defaultLocale) {
+            return { path: '/' + segments.slice(1).join('/'), locale: first };
+        }
+        return { path: rawPath, locale: settings.defaultLocale };
+    }
+
+    /**
      * Match chính xác 1 path tĩnh (STATIC_MODULAR / SPECIAL / COLLECTION_LISTING).
      * `preview=true` bỏ qua điều kiện status=PUBLISHED (mục 13 spec CMS — admin
      * cần xem được trang đang ở trạng thái Draft trước khi publish).
+     * Phase 3 Task 14: `rawPath` có thể có prefix locale (vd "/en/gioi-thieu") -- tách trước
+     * khi query, trả kèm `locale` đã resolve để resolver biết đang phục vụ locale nào.
      */
-    async findByExactPath(path: string, preview = false): Promise<PageEntity | null> {
-        return this.pageRepository.findOneByCondition({
-            where: preview ? { path } : { path, status: EPageStatus.PUBLISHED },
+    async findByExactPath(rawPath: string, preview = false): Promise<{ page: PageEntity; locale: string } | null> {
+        const { path, locale } = await this.stripLocalePrefix(rawPath);
+        const page = await this.pageRepository.findOneByCondition({
+            where: preview ? { path, locale } : { path, locale, status: EPageStatus.PUBLISHED },
         });
+        return page ? { page, locale } : null;
     }
 
     /**
@@ -149,16 +170,19 @@ export class PageService extends BaseService<PageEntity> {
      * Đây là cơ chế DUY NHẤT cho trang Chi tiết kể từ mục γ (đã xoá hẳn
      * EPageType.COLLECTION_DETAIL) — entry được nạp bởi Block CONTENT_DETAIL tự cấu
      * hình `dataSource.genericFilters` đọc pathParam, không còn ràng buộc ":slug" cuối path.
+     * Phase 3 Task 14: `rawPath` tách prefix locale TRƯỚC khi match pattern (giống
+     * `findByExactPath`) -- candidates lọc thêm điều kiện `locale` đã resolve, trả kèm `locale`.
      */
-    async findByParamPattern(path: string, preview = false): Promise<{ page: PageEntity; params: Record<string, string> } | null> {
+    async findByParamPattern(rawPath: string, preview = false): Promise<{ page: PageEntity; params: Record<string, string>; locale: string } | null> {
+        const { path, locale } = await this.stripLocalePrefix(rawPath);
         const candidates = await this.pageRepository.findByCondition({
             where: preview
-                ? { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%') }
-                : { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), status: EPageStatus.PUBLISHED },
+                ? { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), locale }
+                : { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), status: EPageStatus.PUBLISHED, locale },
         });
         for (const page of candidates) {
             const params = matchPathPattern(path, page.path);
-            if (params) return { page, params };
+            if (params) return { page, params, locale };
         }
         return null;
     }

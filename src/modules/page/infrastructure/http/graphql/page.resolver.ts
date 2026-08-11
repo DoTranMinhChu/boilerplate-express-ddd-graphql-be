@@ -84,24 +84,26 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     private async resolvePage(rawPath: string, preview: boolean): Promise<PageResolverResultType | null> {
         const path = normalizePagePath(rawPath);
 
-        const exactPage = await this.pageService.findByExactPath(path, preview);
-        if (exactPage) {
+        const exactMatch = await this.pageService.findByExactPath(path, preview);
+        if (exactMatch) {
+            const { page, locale } = exactMatch;
             const [sections, { header, footer }] = await Promise.all([
-                this.sectionService.findByPage(exactPage.id),
-                this.resolveHeaderFooter(exactPage),
+                this.sectionService.findByPage(page.id),
+                this.resolveHeaderFooter(page),
             ]);
             return {
-                page: exactPage,
+                page,
                 sections,
-                seo: { ...exactPage.seo },
+                seo: { ...page.seo },
                 header,
                 footer,
+                locale,
             };
         }
 
         const paramMatch = await this.pageService.findByParamPattern(path, preview);
         if (paramMatch) {
-            const { page, params } = paramMatch;
+            const { page, params, locale } = paramMatch;
             const [sections, { header, footer }] = await Promise.all([
                 this.sectionService.findByPage(page.id),
                 this.resolveHeaderFooter(page),
@@ -113,6 +115,7 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
                 params,
                 header,
                 footer,
+                locale,
             };
         }
 

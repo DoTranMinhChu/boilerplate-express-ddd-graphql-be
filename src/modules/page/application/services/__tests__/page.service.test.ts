@@ -142,6 +142,109 @@ describe('PageService.resolveSitemapSeo', () => {
     });
 });
 
+describe('PageService.findByExactPath -- tách prefix locale (Phase 3 Task 14)', () => {
+    function makeSiteLocaleSettingsService(defaultLocale = 'vi', enabledLocales = ['vi', 'en']) {
+        return { getSettings: jest.fn(async () => ({ defaultLocale, enabledLocales })) };
+    }
+
+    it('path có prefix locale khác mặc định -- tách đúng, tìm page theo path KHÔNG prefix + locale', async () => {
+        // SiteLocaleSettings: defaultLocale='vi'. Page tồn tại: path='/gioi-thieu', locale='en'.
+        const page = { id: 'page-1', path: '/gioi-thieu', locale: 'en', status: 'PUBLISHED' };
+        const fakePageRepo = { findOneByCondition: jest.fn(async () => page) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByExactPath('/en/gioi-thieu');
+
+        expect(result).toEqual({ page, locale: 'en' });
+        expect(fakePageRepo.findOneByCondition).toHaveBeenCalledWith({
+            where: { path: '/gioi-thieu', locale: 'en', status: 'PUBLISHED' },
+        });
+    });
+
+    it('path KHÔNG prefix -- tìm theo locale mặc định như trước (không regression)', async () => {
+        const page = { id: 'page-2', path: '/gioi-thieu', locale: 'vi', status: 'PUBLISHED' };
+        const fakePageRepo = { findOneByCondition: jest.fn(async () => page) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByExactPath('/gioi-thieu');
+
+        expect(result).toEqual({ page, locale: 'vi' });
+        expect(fakePageRepo.findOneByCondition).toHaveBeenCalledWith({
+            where: { path: '/gioi-thieu', locale: 'vi', status: 'PUBLISHED' },
+        });
+    });
+
+    it('preview=true -- bỏ điều kiện status, vẫn tách prefix locale đúng', async () => {
+        const page = { id: 'page-3', path: '/lien-he', locale: 'en', status: 'DRAFT' };
+        const fakePageRepo = { findOneByCondition: jest.fn(async () => page) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByExactPath('/en/lien-he', true);
+
+        expect(result).toEqual({ page, locale: 'en' });
+        expect(fakePageRepo.findOneByCondition).toHaveBeenCalledWith({
+            where: { path: '/lien-he', locale: 'en' },
+        });
+    });
+
+    it('không match page nào -- trả null', async () => {
+        const fakePageRepo = { findOneByCondition: jest.fn(async () => null) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByExactPath('/khong-ton-tai');
+
+        expect(result).toBeNull();
+    });
+
+    it('segment đầu KHÔNG nằm trong enabledLocales -- coi là path thường, không tách', async () => {
+        const page = { id: 'page-4', path: '/de/gioi-thieu', locale: 'vi', status: 'PUBLISHED' };
+        const fakePageRepo = { findOneByCondition: jest.fn(async () => page) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
+
+        const result = await service.findByExactPath('/de/gioi-thieu');
+
+        expect(result).toEqual({ page, locale: 'vi' });
+        expect(fakePageRepo.findOneByCondition).toHaveBeenCalledWith({
+            where: { path: '/de/gioi-thieu', locale: 'vi', status: 'PUBLISHED' },
+        });
+    });
+});
+
+describe('PageService.findByParamPattern -- tách prefix locale (Phase 3 Task 14)', () => {
+    function makeSiteLocaleSettingsService(defaultLocale = 'vi', enabledLocales = ['vi', 'en']) {
+        return { getSettings: jest.fn(async () => ({ defaultLocale, enabledLocales })) };
+    }
+
+    it('path có prefix locale khác mặc định -- tách trước khi match pattern, trả kèm locale', async () => {
+        const page = { id: 'page-1', path: '/tin-tuc/:slug', pageType: 'STATIC_MODULAR', locale: 'en', status: 'PUBLISHED' };
+        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByParamPattern('/en/tin-tuc/bai-a');
+
+        expect(result).toEqual({ page, params: { slug: 'bai-a' }, locale: 'en' });
+    });
+
+    it('path KHÔNG prefix -- match theo locale mặc định như trước (không regression)', async () => {
+        const page = { id: 'page-1', path: '/tin-tuc/:slug', pageType: 'STATIC_MODULAR', locale: 'vi', status: 'PUBLISHED' };
+        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByParamPattern('/tin-tuc/bai-a');
+
+        expect(result).toEqual({ page, params: { slug: 'bai-a' }, locale: 'vi' });
+    });
+
+    it('không có candidate nào khớp -- trả null', async () => {
+        const fakePageRepo = { findByCondition: jest.fn(async () => []) };
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any);
+
+        const result = await service.findByParamPattern('/en/tin-tuc/bai-a');
+
+        expect(result).toBeNull();
+    });
+});
+
 describe('PageService.createTranslation', () => {
     function makeSourcePage(overrides: Partial<any> = {}) {
         return {
