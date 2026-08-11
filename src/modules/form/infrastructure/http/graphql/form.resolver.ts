@@ -88,6 +88,18 @@ export class FormResolver extends BaseGraphQLResolver<FormEntity> {
     ) {
         return this.formSubmissionService.validateAndCreate(formId, data);
     }
+
+    // Fix Important (Task 3 review): `notifyEmail` KHÔNG có @Field trên FormEntity (email nội bộ,
+    // không được lộ qua getOneForm/getAllForm -- 2 query đó dùng CHUNG ObjectType 'Form' cho cả
+    // public lẫn staff, codebase không có field-level ACL). Đây là đường DUY NHẤT staff đọc lại
+    // giá trị hiện tại của notifyEmail (vd để hiện sẵn trong form sửa Form ở admin UI).
+    @Query('getFormNotifyEmail', { returnType: String })
+    @GQLAuthorized(STAFF_ROLES)
+    @GQLPermission({ permission: EPermission.FORM_MANAGE, onForbidden: 'throw' })
+    async getFormNotifyEmail(@Args('id') id: string) {
+        const form = await this.formService.findById(id);
+        return form?.notifyEmail ?? null;
+    }
 }
 
 export default FormResolver;

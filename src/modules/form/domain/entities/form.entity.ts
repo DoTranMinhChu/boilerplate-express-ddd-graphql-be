@@ -31,7 +31,14 @@ export class FormEntity extends BaseEntity {
     @Column({ type: 'jsonb', default: {} })
     visibilityRules!: Record<string, { field: string; operator: string; value: any }[]>;
 
-    @Field({ type: String, nullable: true })
+    // KHÔNG @Field -- getOneForm/getAllForm dùng CHUNG ObjectType 'Form' cho CẢ public (FormSection
+    // đọc label/fields/visibilityRules/submitLabel/successMessage để render form công khai) VÀ
+    // staff (admin sửa Form) -- codebase này KHÔNG có field-level access control (chỉ có
+    // method-level @GQLPublic/@GQLAuthorized/@GQLPermission), nên 1 field có @Field trên type này
+    // sẽ lộ ra CẢ query public. notifyEmail là email nội bộ nhận thông báo submission -- không
+    // được lộ ra request công khai. Đọc/ghi giá trị này CHỈ qua getFormNotifyEmail (staff-only
+    // query riêng, xem form.resolver.ts) + CreateFormInput/UpdateFormInput (mutation, đã staff-gated
+    // sẵn ở method level) -- KHÔNG qua field này trên ObjectType.
     @Column({ nullable: true })
     notifyEmail?: string;
 
