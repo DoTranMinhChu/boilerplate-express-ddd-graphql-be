@@ -125,6 +125,22 @@ function _injectListFilter(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// resolveCheckArgId — pure helper, extracted for direct unit-testing
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Fix Critical (Task 7 review, node-tree plan): dùng _.get thay vì bracket access
+// thẳng — mutation nào nhận id lồng trong 1 input object (vd `moveNode(data:
+// MoveNodeInput)` không có arg `id` riêng) cần `checkArg: 'data.id'` mới đọc được.
+// Bracket access args[config.checkArg] với path có dấu chấm luôn trả undefined,
+// khiến dòng "if (!recordId) return" phía dưới bỏ qua ownership-check âm thầm
+// (fail-open) thay vì throw — cùng file này đã dùng _.get cho filterPath phía trên,
+// đây là cùng 1 convention, không phải hành vi mới.
+
+export function resolveCheckArgId(args: Record<string, any>, checkArg: string): any {
+    return _.get(args, checkArg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // _verifyRecordOwnership
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -137,14 +153,7 @@ async function _verifyRecordOwnership(
 ): Promise<void> {
     if (!config.checkArg) return;
 
-    // Fix Critical (Task 7 review, node-tree plan): dùng _.get thay vì bracket access
-    // thẳng — mutation nào nhận id lồng trong 1 input object (vd `moveNode(data:
-    // MoveNodeInput)` không có arg `id` riêng) cần `checkArg: 'data.id'` mới đọc được.
-    // Bracket access args[config.checkArg] với path có dấu chấm luôn trả undefined,
-    // khiến dòng "if (!recordId) return" phía dưới bỏ qua ownership-check âm thầm
-    // (fail-open) thay vì throw — cùng file này đã dùng _.get cho filterPath phía trên,
-    // đây là cùng 1 convention, không phải hành vi mới.
-    const recordId = _.get(args, config.checkArg);
+    const recordId = resolveCheckArgId(args, config.checkArg);
     if (!recordId) return;
 
     const service = _findService(instance);
