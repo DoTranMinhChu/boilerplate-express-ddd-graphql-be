@@ -75,6 +75,10 @@ export enum EPermission {
     // ─── CMS: Section (gắn vào Page) ──────────────────────────────────────────
     SECTION_MANAGE = 'SECTION_MANAGE',
 
+    // ─── CMS: Node (cây node đệ quy — thế hệ mới của Section, xem
+    // docs/superpowers/specs/2026-08-12-nocode-visual-builder-v2-design.md) ────
+    NODE_MANAGE = 'NODE_MANAGE',
+
     // ─── CMS: dynamic Object Type (Content Type builder) ─────────────────────
     CONTENT_TYPE_MANAGE = 'CONTENT_TYPE_MANAGE',
 
@@ -161,6 +165,7 @@ export const PERMISSION_META: Record<EPermission, IPermissionMeta> = {
     [EPermission.PAGE_PUBLISH]: { label: 'Publish/unpublish page', resourceGroup: 'page', suggestedScopeFields: { byId: 'id' } },
 
     [EPermission.SECTION_MANAGE]: { label: 'Manage page sections', resourceGroup: 'page' },
+    [EPermission.NODE_MANAGE]: { label: 'Manage page node tree', resourceGroup: 'page' },
 
     [EPermission.CONTENT_TYPE_MANAGE]: { label: 'Manage content types (Object Type builder)', resourceGroup: 'contentType' },
 
@@ -242,6 +247,7 @@ export const PERMISSION_GROUPS: IPermissionGroup[] = [
         permissions: [
             EPermission.PAGE_VIEW, EPermission.PAGE_CREATE, EPermission.PAGE_UPDATE,
             EPermission.PAGE_DELETE, EPermission.PAGE_PUBLISH, EPermission.SECTION_MANAGE,
+            EPermission.NODE_MANAGE,
         ],
     },
     {
