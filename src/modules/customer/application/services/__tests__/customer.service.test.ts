@@ -1,4 +1,17 @@
 import 'reflect-metadata';
+
+// Task 11 (Phase 4, mục 3) -- CustomerService.loginWithGoogle khởi tạo `googleClient = new
+// OAuth2Client(...)` làm class field (không qua constructor param), nên mock module
+// 'google-auth-library' ở đây TRƯỚC khi import CustomerService để verifyIdToken trả payload giả
+// thay vì gọi Google thật.
+jest.mock('google-auth-library', () => ({
+    OAuth2Client: jest.fn().mockImplementation(() => ({
+        verifyIdToken: jest.fn(async () => ({
+            getPayload: () => ({ sub: 'google-123', email: 'a@b.com', name: 'Nguyễn Văn A' }),
+        })),
+    })),
+}));
+
 import { CustomerService } from '../customer.service';
 import { ConflictException, UnauthorizedException, BadRequestException } from '@/core/domain/exceptions/appException';
 import { authService } from '@/core/application/auth/auth.service';
@@ -115,6 +128,58 @@ describe('CustomerService.requestPasswordReset', () => {
             resetPasswordToken: expect.any(String),
             resetPasswordExpires: expect.any(Date),
         }));
+    });
+});
+
+describe('CustomerService.loginWithGoogle', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('tạo customer mới (authProvider=GOOGLE) nếu chưa có googleId/email nào khớp', async () => {
+        const { service, customerRepository } = makeService({ findOneByCondition: jest.fn(async () => null) });
+        jest.spyOn(authService, 'generateToken').mockReturnValue('signed.jwt.token');
+
+        const result = await service.loginWithGoogle('fake-id-token');
+
+        expect(customerRepository.create).toHaveBeenCalledWith(
+            expect.objectContaining({ email: 'a@b.com', googleId: 'google-123', authProvider: 'GOOGLE' }),
+        );
+        expect(result.customer.id).toBe('c1');
+        expect(result.token).toBe('signed.jwt.token');
+    });
+
+    it('gắn googleId vào customer đã tồn tại theo email (đã đăng ký password trước đó)', async () => {
+        const existing = { id: 'c-existing', email: 'a@b.com', googleId: null, authProvider: 'PASSWORD' };
+        const { service, customerRepository } = makeService({
+            findOneByCondition: jest.fn()
+                .mockResolvedValueOnce(null)      // tìm theo googleId -> không có
+                .mockResolvedValueOnce(existing), // tìm theo email -> có
+        });
+
+        const result = await service.loginWithGoogle('fake-id-token');
+
+        expect(customerRepository.updateById).toHaveBeenCalledWith('c-existing', expect.objectContaining({ googleId: 'google-123' }));
+        expect(customerRepository.create).not.toHaveBeenCalled();
+        expect(result.customer.id).toBe('c-existing');
+    });
+
+    it('login thẳng nếu đã có customer khớp googleId (không tạo/update)', async () => {
+        const existing = { id: 'c-google', email: 'a@b.com', googleId: 'google-123' };
+        const { service, customerRepository } = makeService({ findOneByCondition: jest.fn(async () => existing) });
+
+        const result = await service.loginWithGoogle('fake-id-token');
+
+        expect(result.customer.id).toBe('c-google');
+        expect(customerRepository.create).not.toHaveBeenCalled();
+        expect(customerRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('throw BadRequestException khi payload Google thiếu email/sub', async () => {
+        const { OAuth2Client } = require('google-auth-library');
+        (OAuth2Client as jest.Mock).mockImplementationOnce(() => ({
+            verifyIdToken: jest.fn(async () => ({ getPayload: () => ({}) })),
+        }));
+        const { service } = makeService();
+        await expect(service.loginWithGoogle('bad-token')).rejects.toThrow(BadRequestException);
     });
 });
 

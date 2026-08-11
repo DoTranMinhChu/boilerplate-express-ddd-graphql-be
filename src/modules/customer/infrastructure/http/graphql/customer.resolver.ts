@@ -72,8 +72,8 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
         return await this.customerService.softDeleteByCondition(options);
     }
 
-    // ── Public auth flow (Phase 4, mục 3, Task 10) ──────────────────────────
-    // 4 mutation dưới đây PUBLIC (không cần token) -- rate-limit riêng bằng
+    // ── Public auth flow (Phase 4, mục 3, Task 10-11) ────────────────────────
+    // 5 mutation dưới đây PUBLIC (không cần token) -- rate-limit riêng bằng
     // assertAuthRateLimit (giống registerMerchant/merchantLogin/merchantForgotPassword/
     // merchantResetPassword ở merchant.resolver.ts) vì đây là entrypoint gọi bcrypt
     // (CPU-bound) + gửi email, không có route middleware chung nào chặn được (mọi
@@ -97,6 +97,19 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
     ) {
         assertAuthRateLimit(context.req, { key: 'loginCustomer', max: 8, windowMs: 60_000 });
         return this.customerService.loginCustomer(data.email, data.password);
+    }
+
+    @Mutation('loginCustomerWithGoogle', { returnType: CustomerLoginData })
+    @GQLPublic()
+    async loginCustomerWithGoogle(
+        @Args('idToken') idToken: string,
+        @Context() context: IGraphQLContext,
+    ) {
+        // Task 11 addendum (convention chốt ở Task 9-10): mọi mutation auth public đều phải
+        // rate-limit riêng -- đây cũng là 1 luồng đăng nhập nên dùng cùng max/windowMs với
+        // loginCustomer, không phải luồng đăng ký (registerCustomer dùng max thấp hơn).
+        assertAuthRateLimit(context.req, { key: 'loginCustomerWithGoogle', max: 8, windowMs: 60_000 });
+        return this.customerService.loginWithGoogle(idToken);
     }
 
     @Query('customerGetMe', { returnType: CustomerEntity })

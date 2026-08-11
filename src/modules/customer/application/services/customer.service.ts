@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { MoreThan } from 'typeorm';
+import { OAuth2Client } from 'google-auth-library';
 import { BaseService } from '@/core/application/services/base.service';
 import { authService } from '@/core/application/auth/auth.service';
 import { BadRequestException, ConflictException, UnauthorizedException } from '@/core/domain/exceptions/appException';
@@ -16,6 +17,11 @@ import { EAuthProvider } from '../../domain/enums/customer.enum';
 // customerAuth.service.ts, tránh 2 service cùng thao tác 1 entity (xem p4-task-9-brief.md, ưu tiên
 // MERGE khi file <50 dòng).
 export class CustomerService extends BaseService<CustomerEntity> {
+
+    // Lazy field (not constructor param) -- không cần fake trong test vì
+    // jest.mock('google-auth-library') ở test file thay OAuth2Client bằng stub trước khi
+    // CustomerService được import, giống cách brief Task 11 mô tả.
+    private readonly googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
     constructor(
         private readonly customerRepository = new CustomerRepository(),
@@ -52,6 +58,29 @@ export class CustomerService extends BaseService<CustomerEntity> {
 
         const isValid = await authService.comparePassword(password, customer.password);
         if (!isValid) throw new UnauthorizedException('Email hoặc mật khẩu không chính xác', EErrorCode.AUTH_INVALID_CREDENTIALS);
+
+        const token = authService.generateToken({ roleScope: ERoleScrope.CUSTOMER, customerId: customer.id, username: customer.email! });
+        delete (customer as any).password;
+        return { customer, token };
+    }
+
+    async loginWithGoogle(idToken: string): Promise<{ customer: CustomerEntity; token: string }> {
+        const ticket = await this.googleClient.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
+        const payload = ticket.getPayload();
+        if (!payload?.email || !payload.sub) throw new BadRequestException('Token Google không hợp lệ.', EErrorCode.AUTH_INVALID_CREDENTIALS);
+
+        let customer = await this.customerRepository.findOneByCondition({ where: { googleId: payload.sub } });
+        if (!customer) {
+            customer = await this.customerRepository.findOneByCondition({ where: { email: payload.email } });
+            if (customer) {
+                customer = await this.customerRepository.updateById(customer.id, { googleId: payload.sub } as any);
+            }
+        }
+        if (!customer) {
+            customer = await this.customerRepository.create({
+                email: payload.email, fullname: payload.name, googleId: payload.sub, authProvider: EAuthProvider.GOOGLE,
+            } as any);
+        }
 
         const token = authService.generateToken({ roleScope: ERoleScrope.CUSTOMER, customerId: customer.id, username: customer.email! });
         delete (customer as any).password;
