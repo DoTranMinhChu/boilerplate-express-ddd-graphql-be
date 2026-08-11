@@ -154,35 +154,29 @@ export class PageService extends BaseService<PageEntity> {
     }
 
     /**
-     * Tách prefix locale khỏi `rawPath` TRƯỚC khi query (Phase 3 Task 14 — URL prefix theo
-     * locale trong routing). Segment đầu khớp 1 locale trong `enabledLocales` VÀ khác
-     * `defaultLocale` -> cắt bỏ prefix đó, `locale` = prefix; ngược lại (không prefix, hoặc
-     * segment đầu không phải locale hợp lệ) -> giữ nguyên path, `locale` = defaultLocale
-     * (đúng hành vi cũ, không regression — defaultLocale KHÔNG có prefix, xem `createTranslation`).
-     */
-    private async stripLocalePrefix(rawPath: string): Promise<{ path: string; locale: string }> {
-        const settings = await this.siteLocaleSettingsService.getSettings();
-        const segments = rawPath.split('/').filter(Boolean);
-        const first = segments[0];
-        if (first && settings.enabledLocales.includes(first) && first !== settings.defaultLocale) {
-            return { path: '/' + segments.slice(1).join('/'), locale: first };
-        }
-        return { path: rawPath, locale: settings.defaultLocale };
-    }
-
-    /**
      * Match chính xác 1 path tĩnh (STATIC_MODULAR / SPECIAL / COLLECTION_LISTING).
      * `preview=true` bỏ qua điều kiện status=PUBLISHED (mục 13 spec CMS — admin
      * cần xem được trang đang ở trạng thái Draft trước khi publish).
-     * Phase 3 Task 14: `rawPath` có thể có prefix locale (vd "/en/gioi-thieu") -- tách trước
-     * khi query, trả kèm `locale` đã resolve để resolver biết đang phục vụ locale nào.
+     *
+     * FIX (Phase 3 mục 3, Task 15 — phát hiện lúc QA thủ công luồng i18n, BE Task 14 review
+     * "sạch" trước đó đã lọt bug này): bản trước tách prefix locale khỏi `rawPath` RỒI query
+     * `{path: đã-cắt-prefix, locale}` — SAI vì `PageEntity.path` có `@Index({unique:true})`
+     * GLOBAL (không phải unique theo cặp path+locale), nên `createTranslation` (Task 14) PHẢI
+     * lưu path ĐÃ CÓ prefix ("/en/gioi-thieu", không phải "/gioi-thieu") để không đụng unique
+     * constraint với bản `vi` gốc. Query theo path ĐÃ CẮT PREFIX vì vậy KHÔNG BAO GIỜ khớp giá
+     * trị THẬT đang lưu trong DB -- bản dịch publish xong vẫn 404 ở URL có prefix (đã xác nhận
+     * lại thật 100% bằng GraphQL: tạo + publish 1 bản `en` của "/gioi-thieu" xong,
+     * `pageResolver(path: "/en/gioi-thieu")` trả null).
+     *
+     * Sửa đúng: `path` đã global-unique nên tự nó ĐỦ để định danh 1 row -- không cần tách
+     * prefix/đoán locale từ URL trước khi query nữa, chỉ cần query THẲNG bằng `rawPath` y
+     * nguyên rồi đọc `locale` từ CHÍNH row tìm được. Vừa đúng vừa đơn giản hơn bản cũ.
      */
     async findByExactPath(rawPath: string, preview = false): Promise<{ page: PageEntity; locale: string } | null> {
-        const { path, locale } = await this.stripLocalePrefix(rawPath);
         const page = await this.pageRepository.findOneByCondition({
-            where: preview ? { path, locale } : { path, locale, status: EPageStatus.PUBLISHED },
+            where: preview ? { path: rawPath } : { path: rawPath, status: EPageStatus.PUBLISHED },
         });
-        return page ? { page, locale } : null;
+        return page ? { page, locale: page.locale } : null;
     }
 
     /**
@@ -192,21 +186,40 @@ export class PageService extends BaseService<PageEntity> {
      * Đây là cơ chế DUY NHẤT cho trang Chi tiết kể từ mục γ (đã xoá hẳn
      * EPageType.COLLECTION_DETAIL) — entry được nạp bởi Block CONTENT_DETAIL tự cấu
      * hình `dataSource.genericFilters` đọc pathParam, không còn ràng buộc ":slug" cuối path.
-     * Phase 3 Task 14: `rawPath` tách prefix locale TRƯỚC khi match pattern (giống
-     * `findByExactPath`) -- candidates lọc thêm điều kiện `locale` đã resolve, trả kèm `locale`.
+     *
+     * FIX (Task 15, cùng lớp bug với `findByExactPath` ở trên) — match TRỰC TIẾP `rawPath`
+     * (nguyên, có prefix nếu có) với `page.path` (cũng nguyên, ĐÃ chứa prefix nếu là bản dịch
+     * — xem `createTranslation`), không tách/lọc theo locale trước. `locale` trả về đọc từ
+     * CHÍNH candidate khớp, không suy từ URL.
      */
     async findByParamPattern(rawPath: string, preview = false): Promise<{ page: PageEntity; params: Record<string, string>; locale: string } | null> {
-        const { path, locale } = await this.stripLocalePrefix(rawPath);
         const candidates = await this.pageRepository.findByCondition({
             where: preview
-                ? { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), locale }
-                : { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), status: EPageStatus.PUBLISHED, locale },
+                ? { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%') }
+                : { pageType: In([EPageType.STATIC_MODULAR, EPageType.SPECIAL]), path: Like('%:%'), status: EPageStatus.PUBLISHED },
         });
         for (const page of candidates) {
-            const params = matchPathPattern(path, page.path);
-            if (params) return { page, params, locale };
+            const params = matchPathPattern(rawPath, page.path);
+            if (params) return { page, params, locale: page.locale };
         }
         return null;
+    }
+
+    /**
+     * Nguồn cho bộ chuyển ngôn ngữ công khai (Phase 3 mục 3, Task 15) — mọi Page CÙNG nhóm dịch
+     * `translationGroupId`, ĐANG PUBLISHED (bản dịch Draft chưa dịch xong không được lộ ra bộ
+     * chuyển ngôn ngữ của khách xem trang), khác `excludeLocale` (locale trang đang xem — không
+     * cần link tới chính nó). `getAllPage` (đã hỗ trợ filter tuỳ ý qua GQLPaginationArgs) không
+     * dùng được ở đây vì nó yêu cầu STAFF_ROLES (@GQLAuthorized) — hàm này phục vụ query CÔNG KHAI
+     * `getPageTranslations`, gọi từ Astro SSR public (resolveCmsPageProps.ts) không có JWT.
+     */
+    async findTranslations(translationGroupId: string, excludeLocale?: string): Promise<{ locale: string; path: string }[]> {
+        const pages = await this.pageRepository.findByCondition({
+            where: { translationGroupId, status: EPageStatus.PUBLISHED },
+        });
+        return pages
+            .filter((p) => p.locale !== excludeLocale)
+            .map((p) => ({ locale: p.locale, path: p.path }));
     }
 
     /**

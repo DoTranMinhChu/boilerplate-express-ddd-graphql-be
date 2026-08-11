@@ -103,6 +103,18 @@ export class DetailPathBindingType {
 // `locale` (Phase 3 Task 14): locale ĐÃ RESOLVE sau khi tách prefix khỏi path request (vd
 // "/en/gioi-thieu" -> locale="en") — FE dùng để biết đang xem locale nào (bộ chuyển ngôn
 // ngữ Task 15).
+// Trả về bởi query công khai `getPageTranslations(translationGroupId, excludeLocale)` (Phase 3
+// mục 3, Task 15) — nguồn cho bộ chuyển ngôn ngữ ở SiteHeader. CHỈ 2 field cần cho FE build link
+// (`locale` để hiện nhãn, `path` để build href) -- không lộ nguyên PageEntity ra API công khai cho
+// mục đích này. `getAllPage` (đã có filter tuỳ ý qua GQLPaginationArgs) KHÔNG dùng được ở đây vì
+// nó yêu cầu STAFF_ROLES — query này gọi từ Astro SSR public (resolveCmsPageProps.ts), không có
+// JWT.
+@ObjectType('PageTranslation')
+export class PageTranslationType {
+    @Field({ type: String }) locale!: string;
+    @Field({ type: String }) path!: string;
+}
+
 @ObjectType('PageResolverResult')
 export class PageResolverResultType {
     @Field({ type: PageEntity }) page!: PageEntity;

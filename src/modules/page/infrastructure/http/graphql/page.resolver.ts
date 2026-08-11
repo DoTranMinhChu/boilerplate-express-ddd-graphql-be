@@ -10,7 +10,7 @@ import { GqlSelectOptions } from '@/core/shared/types/graphql/types';
 import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { PageEntity } from '@/modules/page/domain/entities/page.entity';
 import { PageService } from '@/modules/page/application/services/page.service';
-import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType, DetailPathBindingType } from '@/modules/page/application/dto/page.dto';
+import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType, DetailPathBindingType, PageTranslationType } from '@/modules/page/application/dto/page.dto';
 import { SectionService } from '@/modules/section/application/services/section.service';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
@@ -168,6 +168,21 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     @GQLPublic()
     async getPublicDetailPathByContentType(@Args('contentTypeId') contentTypeId: string) {
         return this.pageService.findDetailBinding(contentTypeId);
+    }
+
+    /**
+     * Bộ chuyển ngôn ngữ công khai (Phase 3 mục 3, Task 15) — mọi bản dịch PUBLISHED khác
+     * `excludeLocale` trong cùng `translationGroupId`. Gọi từ `resolveCmsPageProps.ts` (Astro SSR
+     * public, không có JWT) SAU khi đã có `resolved.page.translationGroupId`/`locale` (Task 12/14)
+     * — không dùng `getAllPage` vì nó yêu cầu STAFF_ROLES.
+     */
+    @Query('getPageTranslations', { returnType: [PageTranslationType] })
+    @GQLPublic()
+    async getPageTranslations(
+        @Args('translationGroupId') translationGroupId: string,
+        @Args('excludeLocale') excludeLocale: string | undefined,
+    ) {
+        return this.pageService.findTranslations(translationGroupId, excludeLocale);
     }
 
     /**
