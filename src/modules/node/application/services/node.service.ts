@@ -3,6 +3,7 @@ import { NodeEntity } from '../../domain/entities/node.entity';
 import { NodeRepository } from '../../infrastructure/persistence/node.repository';
 import { BaseService } from '@/core/application/services/base.service';
 import { ConflictException, NotFoundException, BadRequestException } from '@/core/domain/exceptions/appException';
+import { eventBus } from '@/core/infrastructure/events/eventBus';
 
 /** Giới hạn an toàn — xem spec §9/§10 "An toàn". */
 const MAX_TREE_DEPTH = 30;
@@ -69,12 +70,26 @@ export class NodeService extends BaseService<NodeEntity> {
         await this.assertCountAllowed(data.pageId as string);
         await this.assertNoCycle(undefined, data.parentId as string | undefined);
         await this.assertDepthAllowed(data.parentId as string | undefined);
+
         if (data.order === undefined) {
-            const siblings = await this.nodeRepository.findByCondition({
-                where: { pageId: data.pageId, parentId: (data.parentId ?? IsNull()) as any },
+            // Fix Important (Task 5 review): đếm sibling rồi gán data.order = count là
+            // read-then-write — 2 lần createNode đồng thời cùng (pageId, parentId) có thể
+            // đọc trùng count rồi lưu trùng order. Bọc đếm + insert trong 1 transaction
+            // (cùng trx repository) để cả bước đọc-rồi-viết là atomic.
+            const created = await this.manager().transaction(async (trx) => {
+                const trxRepo = trx.getRepository(NodeEntity);
+                const siblingCount = await trxRepo.count({
+                    where: { pageId: data.pageId, parentId: (data.parentId ?? IsNull()) as any } as any,
+                });
+                data.order = siblingCount;
+                return trxRepo.save(trxRepo.create(data));
             });
-            data.order = siblings.length;
+            // Giữ đúng hành vi lifecycle event như BaseService.create() ở nhánh không
+            // dùng transaction bên dưới.
+            eventBus.publishAsync(`${this.entityName}.created`, { entityId: created.id, data: created });
+            return created;
         }
+
         return this.create(data);
     }
 
@@ -83,6 +98,16 @@ export class NodeService extends BaseService<NodeEntity> {
         if (!current) throw new NotFoundException('Không tìm thấy node.');
         await this.assertNoCycle(id, newParentId);
         await this.assertDepthAllowed(newParentId);
+
+        // Fix Minor (Task 5 review): newParentId có thể trỏ tới 1 node ở page khác —
+        // chặn di chuyển node sang trang khác.
+        if (newParentId) {
+            const newParent = await this.nodeRepository.findById(newParentId);
+            if (newParent && newParent.pageId !== current.pageId) {
+                throw new BadRequestException('Không thể chuyển node sang trang khác.');
+            }
+        }
+
         return this.updateById(id, { parentId: newParentId, order: newOrder } as DeepPartial<NodeEntity>);
     }
 
@@ -95,17 +120,36 @@ export class NodeService extends BaseService<NodeEntity> {
     /** BFS xuống hết cây con — không có FK cascade ở DB (parentId chỉ @Index,
      * không @ForeignKey), nên xoá đệ quy phải tự làm ở application layer. */
     private async collectDescendantIds(rootId: string): Promise<string[]> {
-        const ids: string[] = [];
+        // Fix Important (Task 5 review): dùng Set để dedupe — dữ liệu lỗi (parentId
+        // tự trỏ vòng, vd node A có parentId = A) có thể khiến BFS gặp lại cùng 1 id
+        // ở nhiều "level", nếu push thẳng vào array sẽ sinh id trùng lặp trong kết quả.
+        // Chỉ giữ lại id MỚI mỗi vòng — id đã thấy thì không truy vấn lại (tránh loop
+        // vô ích khi toàn bộ children ở level kế tiếp đều đã biết).
+        const ids = new Set<string>();
         let currentLevel = [rootId];
         for (let i = 0; i < MAX_TREE_DEPTH + 5 && currentLevel.length > 0; i++) {
             const children = await this.nodeRepository.findByCondition({
                 where: { parentId: In(currentLevel) } as any,
             });
-            if (!children.length) break;
-            currentLevel = children.map((c) => c.id);
-            ids.push(...currentLevel);
+            const newIds = children.map((c) => c.id).filter((cid) => !ids.has(cid));
+            if (!newIds.length) break;
+            newIds.forEach((cid) => ids.add(cid));
+            currentLevel = newIds;
         }
-        return ids;
+        return Array.from(ids);
+    }
+
+    /** deleteById tolerant với NotFoundException — dữ liệu cây lỗi (vd self-referencing
+     * parentId) có thể khiến 1 id bị xoá 2 lần (đã xoá trong loop descendant, rồi lại
+     * là chính `id` gốc truyền vào deleteSubtree). Bỏ qua NotFoundException để phần còn
+     * lại của cây con vẫn được xoá hết thay vì abort giữa chừng. */
+    private async deleteIfExists(id: string): Promise<void> {
+        try {
+            await this.deleteById(id);
+        } catch (err) {
+            if (err instanceof NotFoundException) return;
+            throw err;
+        }
     }
 
     async deleteSubtree(id: string): Promise<void> {
@@ -114,16 +158,16 @@ export class NodeService extends BaseService<NodeEntity> {
         // có FK), nhưng tránh mọi client đang đọc giữa lúc xoá thấy node cha đã mất
         // còn con vẫn còn treo.
         for (const descId of [...descendantIds].reverse()) {
-            await this.deleteById(descId);
+            await this.deleteIfExists(descId);
         }
-        await this.deleteById(id);
+        await this.deleteIfExists(id);
     }
 
     async duplicateSubtree(id: string): Promise<NodeEntity> {
         const source = await this.nodeRepository.findById(id);
         if (!source) throw new NotFoundException('Không tìm thấy node.');
 
-        // Fix Important (Task 5 review): assertCountAllowed() chỉ áp dụng ở createNode
+        // Fix Critical (Task 5 review): assertCountAllowed() chỉ áp dụng ở createNode
         // (chặn TỪNG lần tạo 1 node) — nhân bản cả cây con có thể tạo ra N node cùng lúc,
         // đẩy tổng vượt MAX_NODES_PER_PAGE mà không bị chặn nếu chỉ kiểm tra count hiện tại.
         // Đếm trước số node cây con SẼ tạo ra, cộng với count hiện có, so 1 lần trước khi

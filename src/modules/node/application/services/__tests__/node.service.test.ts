@@ -34,6 +34,19 @@ function makeService(nodes: Record<string, { id: string; parentId?: string; page
         }),
         deleteById: jest.fn(async () => {}),
         entityClassName: jest.fn(() => 'Node'),
+        // Giả lập EntityManager.transaction() cho fix atomic order-assignment trong
+        // createNode (Task 5 review fix round 1) — trxRepo.count() tái dùng cùng logic
+        // filter với findByCondition ở trên, create/save chỉ merge data như fakeRepo.create.
+        manager: jest.fn(() => ({
+            transaction: async (cb: any) => {
+                const trxRepo = {
+                    count: async (opts: any) => (await fakeRepo.findByCondition(opts)).length,
+                    create: (data: any) => data,
+                    save: async (data: any) => ({ id: 'new-node', ...data }),
+                };
+                return cb({ getRepository: () => trxRepo });
+            },
+        })),
     };
     return { service: new NodeService(fakeRepo as any), fakeRepo };
 }
