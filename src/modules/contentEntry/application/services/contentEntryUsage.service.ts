@@ -107,7 +107,10 @@ export class ContentEntryUsageService {
             // pathParam trộn lẫn), bỏ qua url, giữ nguyên matchKind — giống hệt hành vi hiện tại
             // khi không suy được URL.
             if (section.type === 'content-detail' && ds.mode === 'detail' && ds.query?.contentTypeId === entry.contentTypeId) {
-                const binding = await this.pageService.findDetailBinding(entry.contentTypeId);
+                // Critical #1 fix (đọc NGƯỢC, mục B): truyền entry.locale — không có, findDetailBinding
+                // có thể chọn nhầm candidate Page của locale khác khi content type có Page dịch ở
+                // nhiều locale, khiến URL tra cứu trong usage panel sai locale.
+                const binding = await this.pageService.findDetailBinding(entry.contentTypeId, entry.locale);
                 // Fix (γ final review, Important #1), mở rộng cho N điều kiện (Phase 3 mục 2):
                 // MỖI field feed-URL của binding không `required` — entry có thể lưu BẤT KỲ field
                 // nào trong số này rỗng. Thiếu 1 trong N -> KHÔNG build `url` (thay vì để

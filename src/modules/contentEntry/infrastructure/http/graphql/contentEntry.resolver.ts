@@ -57,6 +57,11 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         @Args('sortField', { type: String }) sortField: string | undefined,
         @Args('sortDirection', { type: String }) sortDirection: 'ASC' | 'DESC' | undefined,
         @Args('filters', { type: [ContentEntryFieldFilterInput] }) filters: ContentEntryFieldFilterInput[] | undefined,
+        // Critical #1 fix (Task 16 review): optional để tương thích ngược — client cũ chưa gửi
+        // arg này vẫn giữ hành vi cũ (trộn mọi locale). FE mới PHẢI truyền locale của trang đang
+        // xem (resolved.locale) để không lấy nhầm bản dịch của locale khác (xem contentEntry.repository.ts
+        // findPublicList).
+        @Args('locale', { type: String }) locale: string | undefined,
     ) {
         return this.contentEntryService.findPublicEntries({
             contentTypeId,
@@ -68,6 +73,7 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
             // trước Phase 2b không có cap nào ở đây, hợp nhất qua findPublicEntries vô tình thêm
             // cap 12 mặc định cho CẢ 2 mode). Mode "dynamic" (không có ids) vẫn mặc định 12 như cũ.
             limit: limit ?? (ids?.length ? undefined : 12),
+            locale,
         });
     }
 
@@ -75,14 +81,14 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     @Query('getRelatedContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
     async getRelatedContentEntries(@Args('input', { type: RelatedEntriesQueryInput }) input: RelatedEntriesQueryInput) {
-        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3);
+        return this.contentEntryService.findRelated(input.entryId, input.matchField, input.limit || 3, input.locale);
     }
 
     /** Khối "Nội dung tổng hợp" — trộn nhiều Object Type vào 1 feed, công khai. */
     @Query('getMixedContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
     async getMixedContentEntries(@Args('input', { type: MixedFeedQueryInput }) input: MixedFeedQueryInput) {
-        return this.contentEntryService.findMixed(input.sources, input.limit || 12);
+        return this.contentEntryService.findMixed(input.sources, input.limit || 12, input.locale);
     }
 
     /** Khối "Nội dung tham chiếu" (backlink) — vd trang Chi tiết danh mục hiện các bài
@@ -90,7 +96,7 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
     @Query('getBacklinkContentEntries', { returnType: [ContentEntryEntity] })
     @GQLPublic()
     async getBacklinkContentEntries(@Args('input', { type: BacklinkEntriesQueryInput }) input: BacklinkEntriesQueryInput) {
-        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12);
+        return this.contentEntryService.findBacklinks(input.entryId, input.sourceContentTypeId, input.matchField, input.limit || 12, input.locale);
     }
 
     /** Công cụ quản trị: liệt kê CHÍNH XÁC trang/khối nào đang thực sự dùng 1 Content Entry —
@@ -146,7 +152,10 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         // thể có N field cùng feed (vd "/danh-muc/:tenDanhMuc/:slug") — chỉ ghi redirect khi TẤT CẢ field
         // đều có giá trị cũ/mới xác định (không undefined) VÀ có ÍT NHẤT 1 field đổi giá trị; fromPath/toPath
         // build bằng cách thay TUẦN TỰ từng ":paramName" bằng giá trị tương ứng (cũ cho fromPath, mới cho toPath).
-        const binding = await this.pageService.findDetailBinding(contentTypeId);
+        // Critical #1 fix (đọc NGƯỢC, mục B): truyền locale của CHÍNH entry đang sửa — nếu không,
+        // findDetailBinding có thể chọn nhầm candidate Page của 1 locale khác khi content type đã
+        // có Page dịch ở nhiều locale, ghi redirect sai locale.
+        const binding = await this.pageService.findDetailBinding(contentTypeId, entry.locale);
         if (binding) {
             const oldValues = binding.bindings.map((b) => previousData?.[b.fieldKey]);
             const newValues = binding.bindings.map((b) => entry.data?.[b.fieldKey]);

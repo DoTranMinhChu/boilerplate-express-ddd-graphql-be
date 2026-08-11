@@ -93,6 +93,7 @@ describe('ContentEntryService — Content Visibility Rules (luôn áp dụng, kh
         expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
             'ct-restricted', 'budget', [5], 'e0', 3,
             [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+            undefined,
         );
     });
 
@@ -102,7 +103,53 @@ describe('ContentEntryService — Content Visibility Rules (luôn áp dụng, kh
         expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
             'ct-restricted', 'budget', ['some-entry-id'], undefined, 12,
             [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+            undefined,
         );
+    });
+
+    // Critical #1 fix (Task 16 review, mục A đọc XUÔI): `locale` param mới -- optional, truyền
+    // xuyên suốt findRelated/findBacklinks/findMixed/findPublicEntries -> repository, để đường đọc
+    // XUÔI (URL/trang đang xem -> entry) không lấy nhầm entry của locale khác trong cùng nhóm dịch.
+    it('findRelated truyền locale xuống findByFieldValueAny VÀ findPublicList (phần filler)', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        (fakeRepo as any).findById = jest.fn(async () => ({ id: 'e0', contentTypeId: 'ct-restricted', data: { budget: 5 } }));
+        await service.findRelated('e0', 'budget', 3, 'vi');
+        expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
+            'ct-restricted', 'budget', [5], 'e0', 3,
+            [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+            'vi',
+        );
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ locale: 'vi' }));
+    });
+
+    it('findBacklinks truyền locale xuống findByFieldValueAny', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findBacklinks('some-entry-id', 'ct-restricted', 'budget', 12, 'en');
+        expect(fakeRepo.findByFieldValueAny).toHaveBeenCalledWith(
+            'ct-restricted', 'budget', ['some-entry-id'], undefined, 12,
+            [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+            'en',
+        );
+    });
+
+    it('findMixed truyền locale xuống findPublicList cho MỖI source', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findMixed([{ contentTypeId: 'ct-restricted', limit: 5 }], 12, 'vi');
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({
+            contentTypeId: 'ct-restricted', locale: 'vi',
+        }));
+    });
+
+    it('findPublicEntries truyền locale xuống findPublicList', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12, locale: 'en' });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }));
+    });
+
+    it('không truyền locale -> giữ hành vi cũ (undefined xuống repository, không lọc)', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12 });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ locale: undefined }));
     });
 
     it('findMixed truyền visibilityExclusions độc lập theo từng source', async () => {

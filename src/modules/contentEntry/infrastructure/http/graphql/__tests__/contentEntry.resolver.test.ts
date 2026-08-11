@@ -74,8 +74,27 @@ describe('ContentEntryResolver.updateContentEntry', () => {
 
         await resolver.updateContentEntry('e1', { data: { slug: 'bai-viet-moi' } } as any);
 
-        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-2');
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-2', undefined);
         expect(fakeRedirectService.recordPathChange).not.toHaveBeenCalled();
+    });
+
+    // Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): entry.locale (đã có sẵn trong scope, trả
+    // về từ updateEntry) PHẢI được truyền xuống findDetailBinding -- không có, findDetailBinding có
+    // thể chọn nhầm candidate Page của locale khác khi content type có Page dịch ở nhiều locale,
+    // ghi redirect sai locale.
+    it('truyền entry.locale xuống findDetailBinding', async () => {
+        const { resolver, fakePageService } = makeResolver({
+            updateEntryResult: {
+                entry: { id: 'e1', locale: 'en', data: { slug: 'bai-viet-moi' } },
+                contentTypeId: 'ct-1',
+                previousData: { slug: 'bai-viet-cu' },
+            },
+            detailBinding: { path: '/en/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
+        });
+
+        await resolver.updateContentEntry('e1', { data: { slug: 'bai-viet-moi' } } as any);
+
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1', 'en');
     });
 
     it('trả về entry đã update kể cả khi có redirect được ghi', async () => {

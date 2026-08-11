@@ -45,11 +45,25 @@ export class PageService extends BaseService<PageEntity> {
      * "/en" là bản dịch tiếng Anh của "/" trong khi thực ra là 1 trang tĩnh riêng tên "en"), không
      * còn bắt buộc để hệ thống hoạt động đúng. Giữ lại vì không có rủi ro regression khi giữ
      * nguyên, và vẫn hữu ích để tránh URL gây hiểu nhầm.
+     *
+     * Important #3 fix (Task 16 review): guard cũ chặn CẢ trường hợp hợp lệ — tạo 1 Page RIÊNG cho
+     * 1 locale khác defaultLocale (không qua `createTranslation`, vd 1 trang ĐẶC BIỆT chỉ tồn tại ở
+     * bản "en", không có bản "vi" tương ứng) — path của trang đó ĐÚNG RA nên bắt đầu bằng "/en" (để
+     * nằm trong không gian URL của locale "en"), nhưng guard cũ throw bất kể `data.locale` của
+     * chính Page đang tạo/sửa là gì. Sửa: nhận thêm `intendedLocale?` (locale của Page đang
+     * tạo/sửa) — khi segment đầu trùng 1 locale VÀ locale đó CHÍNH LÀ `intendedLocale`, cho qua
+     * (không throw); các trường hợp còn lại (segment trùng 1 locale KHÁC locale của chính Page)
+     * vẫn bị chặn như cũ (đây mới là "shadow" gây nhầm lẫn thật).
      */
-    private async assertPathNotLocaleShadow(path: string): Promise<void> {
+    private async assertPathNotLocaleShadow(path: string, intendedLocale?: string): Promise<void> {
         const settings = await this.siteLocaleSettingsService.getSettings();
         const firstSegment = path.replace(/^\//, '').split('/')[0];
-        if (firstSegment && firstSegment !== settings.defaultLocale && settings.enabledLocales.includes(firstSegment)) {
+        if (
+            firstSegment
+            && firstSegment !== settings.defaultLocale
+            && settings.enabledLocales.includes(firstSegment)
+            && firstSegment !== intendedLocale
+        ) {
             throw new ConflictException(
                 `Đường dẫn bắt đầu bằng mã ngôn ngữ đã kích hoạt ("${firstSegment}") — dễ gây nhầm với prefix đa ngôn ngữ, vui lòng đổi đường dẫn hoặc dùng "+ Thêm bản dịch" để tạo bản dịch đúng cách.`,
             );
@@ -59,7 +73,7 @@ export class PageService extends BaseService<PageEntity> {
     async createPage(data: DeepPartial<PageEntity>): Promise<PageEntity> {
         const path = normalizePagePath(data.path as string);
         assertValidPagePath(path);
-        await this.assertPathNotLocaleShadow(path);
+        await this.assertPathNotLocaleShadow(path, data.locale as string | undefined);
         await this.assertPathAvailable(path);
         return this.create({ ...data, path });
     }
@@ -91,6 +105,18 @@ export class PageService extends BaseService<PageEntity> {
             translationGroupId: source.translationGroupId,
             locale,
             status: EPageStatus.DRAFT, // Bản dịch mới LUÔN bắt đầu Draft -- admin tự dịch xong mới publish.
+            // Important #2 fix (Task 16 review): clone thêm 5 field page-level còn thiếu — thiếu
+            // headerPresetId/footerPresetId khiến bản dịch âm thầm rơi về preset MẶC ĐỊNH (khác
+            // preset riêng của bản gốc nếu có), thiếu style làm mất nền/font toàn trang, và thiếu
+            // seoFieldMapping làm SEO động của mục δ ngừng hoạt động trên MỌI bản dịch dù Section
+            // (đã clone đủ ở dưới) vẫn còn nguyên cấu hình Block CONTENT_DETAIL. `seo` (field SEO
+            // TĨNH) vẫn CỐ Ý KHÔNG clone — bản dịch cần SEO riêng theo ngôn ngữ, không dùng chung
+            // bản gốc — giữ nguyên quyết định gốc, không đụng.
+            headerPresetId: source.headerPresetId,
+            footerPresetId: source.footerPresetId,
+            style: source.style,
+            seoFieldMapping: source.seoFieldMapping,
+            contentTypeId: source.contentTypeId,
         });
 
         const sourceSections = await this.sectionRepository.findByCondition({ where: { pageId: source.id } });
@@ -122,7 +148,10 @@ export class PageService extends BaseService<PageEntity> {
         if (data.path && data.path !== current.path) {
             newPath = normalizePagePath(data.path as string);
             assertValidPagePath(newPath);
-            await this.assertPathNotLocaleShadow(newPath);
+            // Important #3 fix: locale HIỆU LỰC của Page sau update — `data.locale` nếu đang đổi
+            // cả locale, không thì locale HIỆN TẠI (nhất quán cách ContentEntryService.updateEntry
+            // xử lý locale khi merge).
+            await this.assertPathNotLocaleShadow(newPath, (data.locale as string | undefined) ?? current.locale);
             await this.assertPathAvailable(newPath, id);
         }
 
@@ -235,7 +264,16 @@ export class PageService extends BaseService<PageEntity> {
      * hệt hành vi hiện tại khi Content Type chưa có trang Chi tiết nào. Nhiều trang cùng khớp -> lấy
      * trang publish SỚM NHẤT (createdAt).
      */
-    async findDetailBinding(contentTypeId: string): Promise<{ path: string; bindings: { paramName: string; fieldKey: string }[] } | null> {
+    /**
+     * Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): thêm `locale?` — mỗi bản dịch của Page
+     * (`createTranslation`, Task 14) cũng clone nguyên Section/dataSource, nên content type này có
+     * thể có NHIỀU Page candidate hợp lệ (1 mỗi locale). Trước fix, hàm luôn chọn candidate publish
+     * SỚM NHẤT bất kể locale — sai locale khi content type đã có Page dịch ở ≥2 locale. Khi có
+     * `locale`, ƯU TIÊN candidate có `page.locale === locale`; không có candidate khớp locale nào ->
+     * fallback về hành vi cũ (candidate cũ nhất, bất kể locale) để không mất khả năng suy URL khi
+     * content type đó CHƯA có bản dịch Page riêng cho locale đang xem.
+     */
+    async findDetailBinding(contentTypeId: string, locale?: string): Promise<{ path: string; bindings: { paramName: string; fieldKey: string }[] } | null> {
         const publishedPages = await this.pageRepository.findByCondition({ where: { status: EPageStatus.PUBLISHED } });
         if (!publishedPages.length) return null;
 
@@ -258,8 +296,11 @@ export class PageService extends BaseService<PageEntity> {
             .filter((c): c is NonNullable<typeof c> => !!c)
             .sort((a, b) => (a.page.createdAt?.getTime() ?? 0) - (b.page.createdAt?.getTime() ?? 0));
 
-        const first = candidates[0];
-        if (!first) return null;
+        if (!candidates.length) return null;
+
+        const first = locale
+            ? candidates.find((c) => c.page.locale === locale) ?? candidates[0]
+            : candidates[0];
         return { path: first.page.path, bindings: first.bindings };
     }
 

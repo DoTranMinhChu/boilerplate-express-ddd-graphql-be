@@ -138,6 +138,7 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         excludeId: string | undefined,
         limit: number,
         visibilityExclusions: FieldCondition[],
+        locale?: string,
     ): Promise<ContentEntryEntity[]> {
         if (!values.length) return [];
 
@@ -145,6 +146,9 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
             .where('e."contentTypeId" = :contentTypeId', { contentTypeId })
             .andWhere('e.status = :status', { status: EPageStatus.PUBLISHED });
         if (excludeId) qb.andWhere('e.id != :excludeId', { excludeId });
+        // Critical #1 fix: khi caller biết locale của trang đang xem, chỉ lấy entry CÙNG locale —
+        // không có tham số này, entry (bất kỳ locale nào) của MỌI bản dịch sẽ trộn lẫn vào kết quả.
+        if (locale) qb.andWhere('e.locale = :locale', { locale });
         qb.andWhere(new Brackets((outer) => {
                 values.forEach((v, i) => {
                     const scalarParam = `matchScalar${i}`;
@@ -179,6 +183,12 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         visibilityExclusions: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
         limit?: number;
+        /** Critical #1 fix (Task 16 review): khi có giá trị, CHỈ trả entry CÙNG locale — trước fix
+         * này hàm luôn trả entry của MỌI locale trong nhóm dịch trộn lẫn, ORDER BY createdAt DESC
+         * khiến bản dịch mới hơn "thắng" bản đúng locale của trang đang xem. Optional (không phải
+         * bắt buộc) để giữ tương thích ngược — caller nào chưa biết locale trang đang xem (hoặc
+         * client cũ chưa gửi arg) vẫn nhận hành vi cũ (không lọc). */
+        locale?: string;
     }): Promise<ContentEntryEntity[]> {
         const qb = this.repository.createQueryBuilder('e')
             .where('e."contentTypeId" = :contentTypeId', { contentTypeId: params.contentTypeId })
@@ -186,6 +196,7 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
 
         if (params.ids?.length) qb.andWhere('e.id IN (:...ids)', { ids: params.ids });
         if (params.excludeIds?.length) qb.andWhere('e.id NOT IN (:...excludeIds)', { excludeIds: params.excludeIds });
+        if (params.locale) qb.andWhere('e.locale = :locale', { locale: params.locale });
 
         params.visibilityExclusions.forEach((cond, i) => this.applyFieldCondition(qb, 'e', cond, `vis${i}`, true));
         params.filters.forEach((cond, i) => this.applyFieldCondition(qb, 'e', cond, `flt${i}`, false));

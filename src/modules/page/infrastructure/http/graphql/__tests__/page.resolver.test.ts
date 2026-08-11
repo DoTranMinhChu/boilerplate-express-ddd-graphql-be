@@ -29,7 +29,12 @@ function makeResolver(opts: {
 
     const fakePageService = {
         findByCondition: jest.fn(async () => opts.staticPages),
-        findDetailBinding: jest.fn(async (contentTypeId: string) => opts.detailBindings[contentTypeId] ?? null),
+        // Critical #1 fix (Task 16 review, mục B): binding key trong `detailBindings` có thể là
+        // "ct-1" (giữ nguyên hành vi cũ, mọi locale dùng chung 1 binding — test cũ) HOẶC
+        // "ct-1::en" (binding RIÊNG cho locale "en") khi test cần verify binding khác nhau theo
+        // locale -- fallback về key không-locale khi không có key riêng cho locale đó.
+        findDetailBinding: jest.fn(async (contentTypeId: string, locale?: string) =>
+            (locale !== undefined ? opts.detailBindings[`${contentTypeId}::${locale}`] : undefined) ?? opts.detailBindings[contentTypeId] ?? null),
         // Mục δ Task 2: getSitemapUrls giờ gọi PageService.resolveSitemapSeo thay vì đọc
         // entry.seo trực tiếp. Fake này mô phỏng hành vi fallback page.seo tĩnh (không map field)
         // — đủ cho các test resolver hiện có (test riêng cho logic resolveSitemapSeo nằm ở
@@ -79,7 +84,11 @@ describe('PageResolver.getSitemapUrls', () => {
         });
         const urls = await resolver.getSitemapUrls();
         expect(urls).toContainEqual(expect.objectContaining({ path: '/bai-viet/bai-viet-a' }));
-        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1');
+        // Critical #1 fix (Task 16 review, mục B): entry không có `locale` (giá trị test cũ) ->
+        // vòng lặp locale THẬT SỰ có mặt trong entries chỉ có 1 phần tử `undefined`, gọi
+        // findDetailBinding với chính giá trị đó -- vẫn đúng hành vi cũ khi mọi entry cùng
+        // (không) có locale.
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1', undefined);
     });
 
     it('Fix Important #1: entry có fieldValue rỗng ("") -> KHÔNG sinh URL (bỏ qua, không có literal "undefined")', async () => {
@@ -166,5 +175,56 @@ describe('PageResolver.getSitemapUrls', () => {
 
         const urls = await resolver.getSitemapUrls();
         expect(urls).toContainEqual(expect.objectContaining({ path: '/tin-tuc/bai-a', priority: 0.9 }));
+    });
+
+    // Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): TRƯỚC fix, 1 binding DUY NHẤT (bất kể
+    // locale) được dùng cho MỌI entry -- bản dịch không có URL riêng trong sitemap, và URL trùng
+    // giữa các locale khi slug giống nhau. Sau fix: MỖI locale THẬT có mặt trong entries lấy
+    // binding RIÊNG (qua findDetailBinding(contentTypeId, locale)) -> URL đúng prefix của locale đó.
+    it('content type có entry ở 2 locale, MỖI locale có Page/binding riêng -> sinh URL ĐÚNG PREFIX cho từng locale, không trộn lẫn', async () => {
+        const viPage = { id: 'p-vi', path: '/bai-viet/:slug', updatedAt: new Date(), seo: {} };
+        const enPage = { id: 'p-en', path: '/en/bai-viet/:slug', updatedAt: new Date(), seo: {} };
+        const { resolver, fakePageService } = makeResolver({
+            staticPages: [viPage, enPage],
+            contentTypes: [{ id: 'ct-1' }],
+            detailBindings: {
+                'ct-1::vi': { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
+                'ct-1::en': { path: '/en/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
+            },
+            entriesByContentType: {
+                'ct-1': [
+                    { id: 'e-vi', locale: 'vi', data: { slug: 'cung-slug' }, updatedAt: new Date(), seo: {} },
+                    { id: 'e-en', locale: 'en', data: { slug: 'cung-slug' }, updatedAt: new Date(), seo: {} },
+                ],
+            },
+        });
+
+        const urls = await resolver.getSitemapUrls();
+
+        expect(urls).toContainEqual(expect.objectContaining({ path: '/bai-viet/cung-slug' }));
+        expect(urls).toContainEqual(expect.objectContaining({ path: '/en/bai-viet/cung-slug' }));
+        // Đúng 1 URL cho mỗi locale — KHÔNG bị trộn/nhân đôi (bug cũ: 1 binding dùng chung cho cả
+        // 2 entry sẽ sinh URL trùng "/bai-viet/cung-slug" cho CẢ 2 locale).
+        expect(urls.filter((u) => u.path.includes('cung-slug'))).toHaveLength(2);
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1', 'vi');
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1', 'en');
+    });
+
+    it('content type có entry ở locale CHƯA có Page dịch riêng -> fallback binding không-locale (không mất URL)', async () => {
+        const viPage = { id: 'p-vi', path: '/bai-viet/:slug', updatedAt: new Date(), seo: {} };
+        const { resolver } = makeResolver({
+            staticPages: [viPage],
+            contentTypes: [{ id: 'ct-1' }],
+            // Chỉ có binding không-locale ("ct-1") -- content type CHƯA có Page dịch cho "en".
+            detailBindings: {
+                'ct-1': { path: '/bai-viet/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] },
+            },
+            entriesByContentType: {
+                'ct-1': [{ id: 'e-en', locale: 'en', data: { slug: 'chua-co-ban-dich' }, updatedAt: new Date(), seo: {} }],
+            },
+        });
+
+        const urls = await resolver.getSitemapUrls();
+        expect(urls).toContainEqual(expect.objectContaining({ path: '/bai-viet/chua-co-ban-dich' }));
     });
 });

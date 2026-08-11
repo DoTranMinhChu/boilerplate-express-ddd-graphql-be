@@ -35,6 +35,9 @@ export class RelatedEntriesQueryInput {
     // "cùng content type, mới nhất trước".
     @Field({ type: String, nullable: true }) matchField?: string;
     @Field({ type: Number, nullable: true }) limit?: number;
+    // Critical #1 fix (Task 16 review): locale của trang đang xem — optional để tương thích
+    // ngược, để trống giữ hành vi cũ (trộn mọi locale).
+    @Field({ type: String, nullable: true }) locale?: string;
 }
 
 // Khối MIXED_FEED (mọi loại trang) — mục C "nội dung tổng hợp" trong plan CMS.
@@ -48,6 +51,9 @@ export class MixedFeedSourceInput {
 export class MixedFeedQueryInput {
     @Field({ type: [MixedFeedSourceInput] }) sources!: MixedFeedSourceInput[];
     @Field({ type: Number, nullable: true }) limit?: number;
+    // Critical #1 fix (Task 16 review): locale của trang đang xem — optional để tương thích
+    // ngược, để trống giữ hành vi cũ (trộn mọi locale).
+    @Field({ type: String, nullable: true }) locale?: string;
 }
 
 // Khối BACKLINK_ENTRIES — hướng NGƯỢC với RelatedEntries: tìm entry ở content type
@@ -59,4 +65,7 @@ export class BacklinkEntriesQueryInput {
     @Field({ type: String }) sourceContentTypeId!: string;
     @Field({ type: String }) matchField!: string;
     @Field({ type: Number, nullable: true }) limit?: number;
+    // Critical #1 fix (Task 16 review): locale của trang đang xem — optional để tương thích
+    // ngược, để trống giữ hành vi cũ (trộn mọi locale).
+    @Field({ type: String, nullable: true }) locale?: string;
 }

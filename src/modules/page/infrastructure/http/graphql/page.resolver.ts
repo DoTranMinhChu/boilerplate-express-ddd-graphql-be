@@ -163,11 +163,19 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
      * VỀ SHAPE (object cũ -> object mới có `bindings[]`) — FE call site cập
      * nhật ở Task 8 (cùng đợt Phase 3), BE tạm làm FE build lỗi cho tới đó
      * (dự kiến, giống các đợt đổi shape trước).
+     *
+     * Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): thêm arg `locale` optional — content
+     * type có thể có NHIỀU Page candidate (1 mỗi locale, do createTranslation clone nguyên
+     * Section). Không truyền -> giữ hành vi cũ (candidate cũ nhất bất kể locale). FE (Section
+     * RELATION display/resolveDetailHref.ts) PHẢI truyền locale của trang đang xem.
      */
     @Query('getPublicDetailPathByContentType', { returnType: DetailPathBindingType })
     @GQLPublic()
-    async getPublicDetailPathByContentType(@Args('contentTypeId') contentTypeId: string) {
-        return this.pageService.findDetailBinding(contentTypeId);
+    async getPublicDetailPathByContentType(
+        @Args('contentTypeId') contentTypeId: string,
+        @Args('locale', { type: String }) locale: string | undefined,
+    ) {
+        return this.pageService.findDetailBinding(contentTypeId, locale);
     }
 
     /**
@@ -229,55 +237,71 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         // ở phase trước của γ — xem `.superpowers/sdd/progress.md`.
         const contentTypes = await this.contentTypeService.findByCondition({});
         for (const contentType of contentTypes) {
-            const binding = await this.pageService.findDetailBinding(contentType.id);
-            if (!binding) continue;
-
-            const boundPage = staticPages.find((p) => p.path === binding.path);
-            // Fix I2 (δ final review): KHÔNG short-circuit ở đây theo robotsIndex TĨNH của trang —
-            // nếu admin đã cấu hình seoFieldMapping.robotsIndex trỏ tới field boolean của entry
-            // (ý định "ẩn mặc định, entry nào set field đó = true thì hiện riêng"), chặn cứng ở cấp
-            // content-type tại đây sẽ bỏ qua TOÀN BỘ entry trước khi resolveSitemapSeo() có cơ hội
-            // áp mapping. Quyết định đúng đắn được chuyển xuống per-entry bên dưới
-            // (`effectiveSeo.robotsIndex === false`), nơi resolveSitemapSeo() đã tự fallback về
-            // robotsIndex tĩnh của trang khi entry không map/không có giá trị — không mất tính năng
-            // "trang ẩn mặc định".
-
-            const entries = await this.contentEntryService.findPublicEntries({
+            // Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): TRƯỚC fix, 1 binding DUY NHẤT
+            // (candidate cũ nhất, bất kể locale) được dùng cho MỌI entry của content type này — bản
+            // dịch không có URL riêng trong sitemap, và URL trùng giữa các locale khi field feed-URL
+            // (vd slug) giống nhau. Sửa: lấy hết entry PUBLISHED (không lọc locale, Content
+            // Visibility Rules vẫn áp đầy đủ qua findPublicEntries — không đổi lớp enforcement) để
+            // suy ra TẬP locale THẬT SỰ có mặt trong dữ liệu (không cần biết trước enabledLocales),
+            // rồi lấy binding RIÊNG cho từng locale đó.
+            const allEntries = await this.contentEntryService.findPublicEntries({
                 contentTypeId: contentType.id,
                 filters: [],
             });
-            for (const entry of entries) {
-                // Phase 3 mục 2 (routing đa segment): `binding.bindings` giờ là MẢNG N điều kiện
-                // (trước là đúng 1 fieldKey/paramName) — đọc GIÁ TRỊ của TỪNG field trước, field nào
-                // là cột THẬT trên ContentEntryEntity đọc qua `hasColumn` (nhất quán với repository
-                // filter builder `applyFieldCondition`), còn lại đọc trong JSONB `data`.
-                const fieldValues = binding.bindings.map((b) => ({
-                    ...b,
-                    value: this.contentEntryService.hasColumn(b.fieldKey) ? (entry as any)[b.fieldKey] : entry.data?.[b.fieldKey],
-                }));
-                // Fix (γ final review, Important #1), mở rộng cho N điều kiện: field feed-URL không
-                // `required` — 1 entry lưu với BẤT KỲ field nào trong số này để trống thì giá trị là
-                // `null`/`undefined`/`''`. `String(undefined)` sẽ ghi literal "undefined" thẳng vào
-                // URL sitemap (đã xác nhận xảy ra thật với content type "QA Repeater Fix (edited)").
-                // Thiếu 1 trong N field -> bỏ qua CẢ URL (không sinh URL nửa vá).
-                if (fieldValues.some((fv) => fv.value == null || fv.value === '')) continue;
+            if (!allEntries.length) continue;
 
-                // Mục δ: entry.seo đã xoá (Task 3) — robotsIndex/sitemapPriority/sitemapChangeFreq
-                // hiệu lực giờ resolve qua Page.seoFieldMapping (PageService.resolveSitemapSeo), map
-                // tới field của CHÍNH entry này, fallback page.seo tĩnh nếu không map hoặc field rỗng.
-                if (!boundPage) continue;
-                const effectiveSeo = this.pageService.resolveSitemapSeo(boundPage, entry.data);
-                if (effectiveSeo.robotsIndex === false) continue;
+            const localesPresent = Array.from(new Set(allEntries.map((e) => e.locale)));
+            for (const locale of localesPresent) {
+                // findDetailBinding tự fallback về candidate cũ nhất (bất kể locale) khi content
+                // type CHƯA có Page dịch riêng cho locale này — không mất URL hoàn toàn, dù URL đó
+                // sẽ không có prefix đúng (đúng như brief mô tả, không cần code thêm ở đây).
+                const binding = await this.pageService.findDetailBinding(contentType.id, locale);
+                if (!binding) continue;
 
-                // Build URL bằng cách thay TUẦN TỰ từng ":paramName" — 1 path pattern có thể có N
-                // param (vd "/danh-muc/:tenDanhMuc/:slug").
-                const path = fieldValues.reduce((p, fv) => p.replace(':' + fv.paramName, String(fv.value)), binding.path);
-                urls.push({
-                    path,
-                    updatedAt: entry.updatedAt,
-                    priority: effectiveSeo.sitemapPriority,
-                    changeFreq: effectiveSeo.sitemapChangeFreq,
-                });
+                const boundPage = staticPages.find((p) => p.path === binding.path);
+                // Fix I2 (δ final review): KHÔNG short-circuit ở đây theo robotsIndex TĨNH của trang —
+                // nếu admin đã cấu hình seoFieldMapping.robotsIndex trỏ tới field boolean của entry
+                // (ý định "ẩn mặc định, entry nào set field đó = true thì hiện riêng"), chặn cứng ở cấp
+                // content-type tại đây sẽ bỏ qua TOÀN BỘ entry trước khi resolveSitemapSeo() có cơ hội
+                // áp mapping. Quyết định đúng đắn được chuyển xuống per-entry bên dưới
+                // (`effectiveSeo.robotsIndex === false`), nơi resolveSitemapSeo() đã tự fallback về
+                // robotsIndex tĩnh của trang khi entry không map/không có giá trị — không mất tính năng
+                // "trang ẩn mặc định".
+
+                const entriesOfLocale = allEntries.filter((e) => e.locale === locale);
+                for (const entry of entriesOfLocale) {
+                    // Phase 3 mục 2 (routing đa segment): `binding.bindings` giờ là MẢNG N điều kiện
+                    // (trước là đúng 1 fieldKey/paramName) — đọc GIÁ TRỊ của TỪNG field trước, field nào
+                    // là cột THẬT trên ContentEntryEntity đọc qua `hasColumn` (nhất quán với repository
+                    // filter builder `applyFieldCondition`), còn lại đọc trong JSONB `data`.
+                    const fieldValues = binding.bindings.map((b) => ({
+                        ...b,
+                        value: this.contentEntryService.hasColumn(b.fieldKey) ? (entry as any)[b.fieldKey] : entry.data?.[b.fieldKey],
+                    }));
+                    // Fix (γ final review, Important #1), mở rộng cho N điều kiện: field feed-URL không
+                    // `required` — 1 entry lưu với BẤT KỲ field nào trong số này để trống thì giá trị là
+                    // `null`/`undefined`/`''`. `String(undefined)` sẽ ghi literal "undefined" thẳng vào
+                    // URL sitemap (đã xác nhận xảy ra thật với content type "QA Repeater Fix (edited)").
+                    // Thiếu 1 trong N field -> bỏ qua CẢ URL (không sinh URL nửa vá).
+                    if (fieldValues.some((fv) => fv.value == null || fv.value === '')) continue;
+
+                    // Mục δ: entry.seo đã xoá (Task 3) — robotsIndex/sitemapPriority/sitemapChangeFreq
+                    // hiệu lực giờ resolve qua Page.seoFieldMapping (PageService.resolveSitemapSeo), map
+                    // tới field của CHÍNH entry này, fallback page.seo tĩnh nếu không map hoặc field rỗng.
+                    if (!boundPage) continue;
+                    const effectiveSeo = this.pageService.resolveSitemapSeo(boundPage, entry.data);
+                    if (effectiveSeo.robotsIndex === false) continue;
+
+                    // Build URL bằng cách thay TUẦN TỰ từng ":paramName" — 1 path pattern có thể có N
+                    // param (vd "/danh-muc/:tenDanhMuc/:slug").
+                    const path = fieldValues.reduce((p, fv) => p.replace(':' + fv.paramName, String(fv.value)), binding.path);
+                    urls.push({
+                        path,
+                        updatedAt: entry.updatedAt,
+                        priority: effectiveSeo.sitemapPriority,
+                        changeFreq: effectiveSeo.sitemapChangeFreq,
+                    });
+                }
             }
         }
 

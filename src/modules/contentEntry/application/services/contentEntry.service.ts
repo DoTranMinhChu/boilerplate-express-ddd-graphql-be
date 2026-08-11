@@ -238,7 +238,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * Rules của CHÍNH contentType này LUÔN áp cho cả 2 phần (match + filler) — mọi
      * đường đọc công khai đều qua lớp này.
      */
-    async findRelated(entryId: string, matchField: string | undefined, limit = 3): Promise<ContentEntryEntity[]> {
+    async findRelated(entryId: string, matchField: string | undefined, limit = 3, locale?: string): Promise<ContentEntryEntity[]> {
         const current = await this.contentEntryRepository.findById(entryId);
         if (!current) return [];
 
@@ -248,7 +248,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         const matchValues = Array.isArray(rawValue) ? rawValue : rawValue !== undefined && rawValue !== null && rawValue !== '' ? [rawValue] : [];
 
         const matched = matchValues.length
-            ? await this.contentEntryRepository.findByFieldValueAny(current.contentTypeId, matchField!, matchValues, current.id, limit, visibilityExclusions)
+            ? await this.contentEntryRepository.findByFieldValueAny(current.contentTypeId, matchField!, matchValues, current.id, limit, visibilityExclusions, locale)
             : [];
 
         if (matched.length >= limit) return matched;
@@ -259,6 +259,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             filters: [],
             visibilityExclusions,
             limit: limit - matched.length,
+            locale,
         });
         return [...matched, ...filler];
     }
@@ -270,9 +271,9 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * theo ContentType NGUỒN (sourceContentTypeId) — nơi entries thực sự được đọc ra,
      * không phải ContentType của entry đang xem. Rule đã khai báo LUÔN áp dụng.
      */
-    async findBacklinks(entryId: string, sourceContentTypeId: string, matchField: string, limit = 12): Promise<ContentEntryEntity[]> {
+    async findBacklinks(entryId: string, sourceContentTypeId: string, matchField: string, limit = 12, locale?: string): Promise<ContentEntryEntity[]> {
         const visibilityExclusions = await this.resolveVisibilityExclusions(sourceContentTypeId);
-        return this.contentEntryRepository.findByFieldValueAny(sourceContentTypeId, matchField, [entryId], undefined, limit, visibilityExclusions);
+        return this.contentEntryRepository.findByFieldValueAny(sourceContentTypeId, matchField, [entryId], undefined, limit, visibilityExclusions, locale);
     }
 
     /**
@@ -281,7 +282,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * exclusions độc lập cho từng source, không dùng chung 1 bộ. Rule đã khai báo LUÔN
      * áp dụng.
      */
-    async findMixed(sources: { contentTypeId: string; limit?: number }[], overallLimit = 12): Promise<ContentEntryEntity[]> {
+    async findMixed(sources: { contentTypeId: string; limit?: number }[], overallLimit = 12, locale?: string): Promise<ContentEntryEntity[]> {
         const perSource = await Promise.all(
             sources.map(async (s) => {
                 const visibilityExclusions = await this.resolveVisibilityExclusions(s.contentTypeId);
@@ -290,6 +291,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
                     filters: [],
                     visibilityExclusions,
                     limit: s.limit || overallLimit,
+                    locale,
                 });
             }),
         );
@@ -311,6 +313,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         filters: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
         limit?: number;
+        locale?: string;
     }): Promise<ContentEntryEntity[]> {
         const contentType = await this.contentTypeService.findById(params.contentTypeId);
         if (!contentType) return [];
@@ -323,6 +326,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             visibilityExclusions,
             sort: params.sort,
             limit: params.limit,
+            locale: params.locale,
         });
 
         if (params.ids?.length) {

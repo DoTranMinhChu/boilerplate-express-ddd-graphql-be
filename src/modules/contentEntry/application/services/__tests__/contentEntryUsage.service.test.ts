@@ -50,7 +50,7 @@ function makeService(setup: Setup) {
     return { service, fakeContentEntryRepository, fakePageRepository, fakeSectionRepository, fakeContentTypeService, fakePageService };
 }
 
-const ENTRY = { id: 'entry-1', contentTypeId: 'ct-1', slug: 'bai-viet-a', data: { slug: 'bai-viet-a' } };
+const ENTRY = { id: 'entry-1', contentTypeId: 'ct-1', slug: 'bai-viet-a', locale: 'vi', data: { slug: 'bai-viet-a' } };
 
 // Trang Chi tiết kiểu β (mục γ): pageType luôn STATIC_MODULAR, path có tham số động;
 // "là trang Chi tiết" được quyết bởi Block CONTENT_DETAIL, không còn bởi pageType.
@@ -244,7 +244,10 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
             pageId: 'page-detail', pageLabel: 'Trang Chi tiết Bài viết', pagePath: '/bai-viet/:slug',
             sectionId: 'sec-detail', sectionType: 'content-detail', matchKind: 'detail', url: '/bai-viet/bai-viet-a',
         });
-        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1');
+        // Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): PHẢI truyền entry.locale (đã có sẵn
+        // trong scope) xuống findDetailBinding -- không có, findDetailBinding có thể chọn nhầm
+        // candidate Page của locale khác khi content type có Page dịch ở nhiều locale.
+        expect(fakePageService.findDetailBinding).toHaveBeenCalledWith('ct-1', 'vi');
     });
 
     it('Block CONTENT_DETAIL khớp đúng content type entry nhưng entry KHÔNG hiển thị công khai (Content Visibility Rule ẩn) -> matchKind detail-not-visible, không có url', async () => {
