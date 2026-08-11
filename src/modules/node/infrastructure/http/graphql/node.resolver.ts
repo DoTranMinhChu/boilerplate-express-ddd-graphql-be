@@ -52,7 +52,10 @@ export class NodeResolver extends BaseGraphQLResolver<NodeEntity> {
 
     @Mutation('moveNode', { returnType: NodeEntity })
     @GQLAuthorized(STAFF_ROLES)
-    @GQLPermission({ permission: EPermission.NODE_MANAGE, onForbidden: 'throw', checkArg: 'id' })
+    // Fix Critical (Task 7 review): moveNode chỉ nhận arg `data` (không có arg `id`
+    // riêng) — `checkArg: 'id'` đọc args['id'] luôn undefined, khiến ownership-check bị
+    // bỏ qua âm thầm (fail-open). Dùng dot-path 'data.id' (handler đã sửa dùng _.get).
+    @GQLPermission({ permission: EPermission.NODE_MANAGE, onForbidden: 'throw', checkArg: 'data.id' })
     async moveNode(@Args('data', { type: MoveNodeInput }) data: MoveNodeInput) {
         return this.nodeService.moveNode(data.id, data.newParentId, data.newOrder);
     }
