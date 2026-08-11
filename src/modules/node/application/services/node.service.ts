@@ -122,6 +122,19 @@ export class NodeService extends BaseService<NodeEntity> {
     async duplicateSubtree(id: string): Promise<NodeEntity> {
         const source = await this.nodeRepository.findById(id);
         if (!source) throw new NotFoundException('Không tìm thấy node.');
+
+        // Fix Important (Task 5 review): assertCountAllowed() chỉ áp dụng ở createNode
+        // (chặn TỪNG lần tạo 1 node) — nhân bản cả cây con có thể tạo ra N node cùng lúc,
+        // đẩy tổng vượt MAX_NODES_PER_PAGE mà không bị chặn nếu chỉ kiểm tra count hiện tại.
+        // Đếm trước số node cây con SẼ tạo ra, cộng với count hiện có, so 1 lần trước khi
+        // bắt đầu đệ quy clone.
+        const descendantIds = await this.collectDescendantIds(id);
+        const cloneCount = descendantIds.length + 1;
+        const currentCount = await this.nodeRepository.countByCondition({ pageId: source.pageId } as any);
+        if (currentCount + cloneCount > MAX_NODES_PER_PAGE) {
+            throw new BadRequestException(`Nhân bản sẽ vượt số lượng node tối đa của trang (${MAX_NODES_PER_PAGE}).`);
+        }
+
         return this.cloneNodeRecursive(source, source.parentId);
     }
 
