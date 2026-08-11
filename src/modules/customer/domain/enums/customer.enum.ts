@@ -16,3 +16,11 @@ export enum ECustomerTraitSentiment {
 }
 
 RegisterEnum(ECustomerTraitSentiment, "ECustomerTraitSentiment")
+
+
+export enum EAuthProvider {
+    PASSWORD = 'PASSWORD',
+    GOOGLE = 'GOOGLE',
+}
+
+RegisterEnum(EAuthProvider, "EAuthProvider")
