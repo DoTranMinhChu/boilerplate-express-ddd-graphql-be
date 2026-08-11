@@ -34,14 +34,17 @@ export class PageService extends BaseService<PageEntity> {
     }
 
     /**
-     * Chặn CHIỀU 1 của rủi ro "path trang tĩnh trùng mã locale" (Phase 3 mục 3, xem
+     * Chặn rủi ro "path trang tĩnh trùng mã locale" (Phase 3 mục 3, xem
      * 2026-08-10-phase3-menu-routing-i18n.md review Task 14) -- nếu admin tạo/sửa Page qua
      * `createPage`/`updatePage` (KHÔNG qua `createTranslation`, nơi prefix "/{locale}" được tự
      * sinh và luôn hợp lệ) với segment đầu của path trùng CHÍNH XÁC 1 locale đã enable (khác
-     * `defaultLocale` -- defaultLocale không có prefix nên không mơ hồ), `stripLocalePrefix` ở
-     * `findByExactPath`/`findByParamPattern` sẽ diễn giải segment đó là prefix locale và cắt bỏ,
-     * khiến page tĩnh KHÔNG BAO GIỜ truy cập được đúng path đã lưu (bị "shadow"). Chặn ngay lúc
-     * lưu để admin đổi path hoặc dùng "+ Thêm bản dịch" thay vì tạo path trùng thủ công.
+     * `defaultLocale` -- defaultLocale không có prefix nên không mơ hồ). Từ Task 15,
+     * `findByExactPath`/`findByParamPattern` không còn tách/suy prefix từ URL nữa (match thẳng
+     * `rawPath` đã lưu) nên path dạng này KHÔNG còn bị "shadow" thật về mặt correctness -- guard
+     * này giờ CHỈ còn là lớp phòng ngừa UX (tránh admin tự gây nhầm lẫn khi đọc URL, vd nghĩ
+     * "/en" là bản dịch tiếng Anh của "/" trong khi thực ra là 1 trang tĩnh riêng tên "en"), không
+     * còn bắt buộc để hệ thống hoạt động đúng. Giữ lại vì không có rủi ro regression khi giữ
+     * nguyên, và vẫn hữu ích để tránh URL gây hiểu nhầm.
      */
     private async assertPathNotLocaleShadow(path: string): Promise<void> {
         const settings = await this.siteLocaleSettingsService.getSettings();
