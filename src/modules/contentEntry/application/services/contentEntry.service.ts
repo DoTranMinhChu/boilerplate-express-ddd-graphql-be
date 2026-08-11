@@ -319,6 +319,14 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         if (!contentType) return [];
         const visibilityExclusions = await this.resolveVisibilityExclusions(params.contentTypeId);
 
+        // Fix Important (Task 16 re-review): lookup bằng `ids` tường minh (mode "manual", hoặc
+        // field RELATION join) KHÔNG lọc theo `locale` -- khác `filters`/dynamic (nơi locale THẬT
+        // SỰ cần để chọn đúng 1 candidate giữa NHIỀU entry cùng khớp field filter, đây là lý do
+        // Critical #1 gốc tồn tại), 1 `id` cụ thể đã là selector DUY NHẤT, không có mơ hồ nào để
+        // locale phải giải quyết. `createTranslation` (Page) clone Section/dataSource NGUYÊN VẸN,
+        // không tự dịch lại `ids` ghim tay/field RELATION sang entry cùng locale -- lọc cứng locale
+        // ở đây sẽ khiến khối/field đó RỖNG NGAY LẦN ĐẦU dùng "+ Thêm bản dịch" trên trang có block
+        // ghim tay, thay vì hiển thị entry (locale khác) mà admin/dữ liệu đã trỏ tới đích danh.
         const entries = await this.contentEntryRepository.findPublicList({
             contentTypeId: params.contentTypeId,
             ids: params.ids,
@@ -326,7 +334,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             visibilityExclusions,
             sort: params.sort,
             limit: params.limit,
-            locale: params.locale,
+            locale: params.ids?.length ? undefined : params.locale,
         });
 
         if (params.ids?.length) {

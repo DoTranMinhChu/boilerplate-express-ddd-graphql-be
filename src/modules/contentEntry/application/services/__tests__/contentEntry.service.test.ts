@@ -179,6 +179,16 @@ describe('ContentEntryService — Content Visibility Rules (luôn áp dụng, kh
         await service.findPublicEntries({ contentTypeId: 'ct-restricted', ids: ['a', 'b', 'c'], filters: [], limit: undefined });
         expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
     });
+
+    // Fix Important (Task 16 re-review): lookup bằng `ids` tường minh (mode "manual"/field
+    // RELATION) KHÔNG được lọc theo locale -- 1 id đã là selector duy nhất, không có mơ hồ nào để
+    // locale giải quyết; lọc cứng sẽ khiến khối/field RỖNG khi bản dịch trang chưa tự trỏ ids sang
+    // entry cùng locale (createTranslation clone dataSource nguyên vẹn, không tự dịch ids/RELATION).
+    it('findPublicEntries KHÔNG truyền locale xuống findPublicList khi có ids (dù caller truyền locale)', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', ids: ['a', 'b'], filters: [], locale: 'en' });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ locale: undefined }));
+    });
 });
 
 describe('ContentEntryService.validateData — validate rule + TAXONOMY', () => {
