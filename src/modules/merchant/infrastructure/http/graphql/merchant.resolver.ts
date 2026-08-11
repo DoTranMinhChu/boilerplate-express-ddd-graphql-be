@@ -14,6 +14,7 @@ import { MerchantEntity } from "@/modules/merchant/domain/entities/merchant.enti
 import { TenantAccountLogin } from "@/modules/tenantAccount/application/dto/tenantAccountLogin.dto";
 import _ from "lodash";
 import { FindOneOptions } from "typeorm";
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 
 const MerchantPagination = PaginatedResponse(MerchantEntity);
 
@@ -28,7 +29,7 @@ export class MerchantResolver extends BaseGraphQLResolver<MerchantEntity> {
   }
 
   @Query('getOneMerchant', { returnType: MerchantEntity })
-  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+  @GQLAuthorized(INTERNAL_SCOPES)
   async getOneMerchant(
     @Args('id') id: string,
     @GQLQuery() fieldOptions: GqlSelectOptions<MerchantEntity>,
@@ -39,7 +40,7 @@ export class MerchantResolver extends BaseGraphQLResolver<MerchantEntity> {
   }
 
   @Query('getAllMerchant', { returnType: MerchantPagination })
-  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+  @GQLAuthorized(INTERNAL_SCOPES)
   async getAllMerchant(
     @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
     @GQLQuery() fieldOptions: GqlSelectOptions<MerchantEntity>,

@@ -12,6 +12,7 @@ import { AdminLoginData } from "@/modules/admin/application/dto/adminLogin.dto";
 import { AdminService } from "@/modules/admin/application/services/admin.service";
 import { AdminEntity } from "@/modules/admin/domain/entities/admin.entity";
 import { FindOneOptions } from "typeorm";
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 const AdminPagination = PaginatedResponse(AdminEntity)
 
 @Resolver(AdminEntity)
@@ -31,7 +32,7 @@ export class AdminResolver extends BaseGraphQLResolver<AdminEntity> {
         return this.adminService.findOneByCondition(options);
     }
     @Query('getAllAdmin', { returnType: AdminPagination })
-    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+    @GQLAuthorized(INTERNAL_SCOPES)
     async getAllAdmin(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<AdminEntity>,

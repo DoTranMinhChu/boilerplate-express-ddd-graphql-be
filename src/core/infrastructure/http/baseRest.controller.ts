@@ -5,20 +5,30 @@ import { Post, Authorized, Body, CurrentUser, Get, Cache, Param, Put, Delete, Qu
 import { ERoleScrope } from '@/core/shared/enums/account.enum';
 import { ForbiddenException } from '@/core/domain/exceptions/appException';
 import { EErrorCode } from '@/core/shared/enums/errorCode.enum';
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 
 // Fix Critical (Phase 4 Task 9 security review, residual từ addendum GraphQL): 5 method CRUD
 // chuẩn dưới đây trước là bare `@Authorized()` ("chỉ cần đăng nhập, BẤT KỲ scope nào") — sau khi
 // thêm scope CUSTOMER (Task 8), MỌI subclass kế thừa nguyên (dù có override method hay không --
 // override KHÔNG tự khai lại @Authorized() vẫn kế thừa metadata AUTHORIZED/ROLES từ class này qua
 // prototype chain của reflect-metadata, đã verify bằng cách đọc merchant.controller.ts's getAll/
-// getById override — không có decorator riêng nào) sẽ vô tình mở 16 endpoint REST (customer/
-// merchant/tenant/agency/agencyAccount/tenantAccount/media/mediaSet) cho JWT scope CUSTOMER --
-// bao gồm dump toàn bộ Customer (PII), và rò password hash của Merchant (MerchantEntity.password
-// không có select:false). Đây LÀ CÙNG LỚP LỖ HỔNG addendum GraphQL đã vá (13 site
+// getById override — không có decorator riêng nào) sẽ vô tình mở các endpoint REST kế thừa
+// (customer/merchant/tenant/agency/agencyAccount/tenantAccount/media/mediaSet/admin) cho JWT scope
+// CUSTOMER -- bao gồm dump toàn bộ Customer (PII), rò password hash của Merchant (MerchantEntity.
+// password không có select:false). CÙNG LỚP LỖ HỔNG addendum GraphQL Task 9 đã vá (13 site
 // @GQLAuthorized()) nhưng addendum đó chỉ grep *.resolver.ts, bỏ sót tầng REST. Khôi phục đúng
-// hành vi TRƯỚC KHI scope CUSTOMER tồn tại: chỉ 4 scope nội bộ cũ được authorize, không đổi gì
-// khác (không role cụ thể nào bị siết thêm, ADMIN/MERCHANT/AGENCY/TENANT vẫn qua như cũ).
-const INTERNAL_SCOPES = [ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT];
+// hành vi TRƯỚC KHI scope CUSTOMER tồn tại — không đổi gì cho 4 scope cũ.
+//
+// LƯU Ý CÒN TỒN ĐỌNG (KHÔNG do fix này gây ra, pre-existing từ trước Phase 4 -- ghi nhận, chưa
+// vá ở đây): route base (`create`/`updateOne`/`deleteOne`) và route override cùng
+// method+path ở 1 số subclass (vd AdminRestController's createAdmin/updateAdmin/deleteAdmin,
+// có role SIẾT CHẶT HƠN như [SUPER_ADMIN]) bị Express match theo THỨ TỰ ĐĂNG KÝ (base trước) --
+// route base LUÔN thắng, route override SIẾT CHẶT hơn của subclass thành code chết. Nghĩa là 1
+// token scope hợp lệ (vd MERCHANT) dù KHÔNG có role SUPER_ADMIN vẫn gọi được `PUT /api/v1/admins/:id`
+// qua handler CỦA BASE (chỉ check INTERNAL_SCOPES, không check role SUPER_ADMIN subclass yêu cầu).
+// Đây là bug ROUTE-SHADOWING sâu hơn ở tầng đăng ký route (`createRouteDecorator`), không phải bug
+// "bare @Authorized()" mà Task 9 đang vá -- cần 1 task riêng (dedupe route theo method+path, ưu
+// tiên decorator của class cụ thể hơn class cha) để giải quyết đúng gốc.
 
 /**
  * Base REST Controller với CRUD endpoints chuẩn

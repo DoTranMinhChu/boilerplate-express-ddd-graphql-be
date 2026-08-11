@@ -8,6 +8,7 @@ import { GQLPaginationArgs, PaginatedResponse } from "@/core/shared/dto/paginati
 import { CreateCustomerInput, UpdateCustomerInput } from "@/modules/customer/application/dto/customer.dto";
 import { GqlSelectOptions } from "@/core/shared/types/graphql/types";
 import { FindOneOptions } from "typeorm";
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 const CustomerPagination = PaginatedResponse(CustomerEntity)
 
 @Resolver(CustomerEntity)
@@ -21,7 +22,7 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
     }
 
     @Query('getOneCustomer', { returnType: CustomerEntity })
-    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+    @GQLAuthorized(INTERNAL_SCOPES)
     async getOneCustomer(
         @Args('id') id: string,
         @GQLQuery() fieldOptions: GqlSelectOptions<CustomerEntity>,
@@ -31,7 +32,7 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
     }
 
     @Query('getAllCustomer', { returnType: CustomerPagination })
-    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+    @GQLAuthorized(INTERNAL_SCOPES)
     async getAllCustomer(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<CustomerEntity>,

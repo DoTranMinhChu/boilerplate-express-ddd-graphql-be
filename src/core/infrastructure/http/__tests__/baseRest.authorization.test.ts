@@ -1,55 +1,60 @@
 import 'reflect-metadata';
-import { Get, Authorized } from '@/core/shared/decorators/restAPI.decorators';
 import { METADATA_KEYS } from '@/core/shared/types/common.types';
 import { rbacService } from '@/core/application/auth/RBAC.service';
 import { ERoleScrope, ERole } from '@/core/shared/enums/account.enum';
 import { ForbiddenException } from '@/core/domain/exceptions/appException';
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
+import { MerchantRestController } from '@/modules/merchant/infrastructure/http/controllers/merchant.controller';
+import { CustomerRestController } from '@/modules/customer/infrastructure/http/controllers/customer.controller';
 
 /**
  * Regression test cho fix Critical (Phase 4 Task 9 security review) — 5 method CRUD chuẩn của
  * `BaseRestController` trước là bare `@Authorized()` ("chỉ cần đăng nhập, bất kỳ scope nào"), sau
- * khi thêm scope CUSTOMER (Task 8) sẽ vô tình mở 16 endpoint REST cho khách công khai đã đăng ký.
+ * khi thêm scope CUSTOMER (Task 8) sẽ vô tình mở nhiều endpoint REST cho khách công khai đã đăng
+ * ký. Test đọc metadata TRỰC TIẾP trên `.prototype` của 2 class REST THẬT (`MerchantRestController`,
+ * `CustomerRestController`) — KHÔNG cần `new` (constructor cần `BaseService` thật, đọc metadata
+ * decorator không đụng runtime instance nào) — để tránh lỗi "test giả" đã xảy ra ở phiên bản đầu
+ * (dựng lại 1 class mock riêng, không chạm code production nào, review phát hiện tự revert fix
+ * thật vẫn PASS 7/7).
  *
- * Test này KHÔNG import trực tiếp `BaseRestController` (constructor cần 1 `BaseService` thật) —
- * dựng lại đúng shape metadata mà class đó khai báo (bare vs INTERNAL_SCOPES), rồi verify
- * `rbacService.authorizeRoles` xử lý đúng 2 trường hợp, khớp hành vi thật của
- * `restRouter.loader.ts:222-235` (đọc `ROLES` metadata rồi gọi `authorizeRoles`).
+ * `MerchantRestController.getAll`/`getById` OVERRIDE base nhưng KHÔNG tự khai `@Authorized()`
+ * riêng (đọc file thật: `merchant.controller.ts:25-36`, chỉ có `@Get()`/`@Cache()`) — đúng kịch
+ * bản thật gây ra lỗ hổng: metadata phải kế thừa từ `BaseRestController` qua prototype chain.
+ * `CustomerRestController` KHÔNG override `getAll`/`getById` — kế thừa trực tiếp, trường hợp đơn
+ * giản hơn, dùng để đối chứng.
  */
-describe('BaseRestController — CUSTOMER scope KHÔNG được authorize qua REST CRUD chuẩn', () => {
-    const INTERNAL_SCOPES = [ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT];
-
-    class FixedBaseCtrl {
-        @Get()
-        @Authorized(INTERNAL_SCOPES)
-        getAll() { }
-    }
-
-    // Mirror đúng tình huống thật (merchant.controller.ts's getAll override) — subclass override
-    // 1 method KHÔNG tự khai lại @Authorized() nào -- metadata AUTHORIZED/ROLES phải kế thừa từ
-    // class cha qua prototype chain của reflect-metadata.
-    class ChildOverrideNoOwnDecorator extends FixedBaseCtrl {
-        getAll() { return 'overridden'; }
-    }
-
-    it('subclass override KHÔNG tự khai @Authorized() vẫn kế thừa ROLES metadata từ base (không phải bare)', () => {
-        const roles = Reflect.getMetadata(METADATA_KEYS.ROLES, ChildOverrideNoOwnDecorator.prototype, 'getAll');
+describe('BaseRestController — CUSTOMER scope KHÔNG được authorize qua REST CRUD chuẩn (test gắn thẳng vào class production)', () => {
+    it('MerchantRestController.getAll (override, KHÔNG có @Authorized riêng) kế thừa đúng INTERNAL_SCOPES từ BaseRestController', () => {
+        const roles = Reflect.getMetadata(METADATA_KEYS.ROLES, MerchantRestController.prototype, 'getAll');
         expect(roles).toEqual(INTERNAL_SCOPES);
     });
 
-    it('rbacService.authorizeRoles CHẶN account scope CUSTOMER khi required = INTERNAL_SCOPES (đúng behavior sau fix)', () => {
+    it('MerchantRestController.getById (override, KHÔNG có @Authorized riêng) kế thừa đúng INTERNAL_SCOPES', () => {
+        const roles = Reflect.getMetadata(METADATA_KEYS.ROLES, MerchantRestController.prototype, 'getById');
+        expect(roles).toEqual(INTERNAL_SCOPES);
+    });
+
+    it('CustomerRestController.getAll (kế thừa trực tiếp, không override) có đúng INTERNAL_SCOPES', () => {
+        const roles = Reflect.getMetadata(METADATA_KEYS.ROLES, CustomerRestController.prototype, 'getAll');
+        expect(roles).toEqual(INTERNAL_SCOPES);
+    });
+
+    it('rbacService.authorizeRoles CHẶN account scope CUSTOMER với ROLES thật đọc từ MerchantRestController.getAll', () => {
+        const roles = Reflect.getMetadata(METADATA_KEYS.ROLES, MerchantRestController.prototype, 'getAll');
         const customerAccount = { id: 'c1', username: 'a@b.com', roleScope: ERoleScrope.CUSTOMER, roles: [] };
-        expect(() => rbacService.authorizeRoles(customerAccount as any, INTERNAL_SCOPES)).toThrow(ForbiddenException);
+        expect(() => rbacService.authorizeRoles(customerAccount as any, roles)).toThrow(ForbiddenException);
     });
 
     it.each([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])(
-        'rbacService.authorizeRoles CHO QUA scope %s (giữ đúng hành vi TRƯỚC KHI có scope CUSTOMER)',
+        'rbacService.authorizeRoles CHO QUA scope %s với ROLES thật đọc từ MerchantRestController.getAll (giữ đúng hành vi TRƯỚC KHI có scope CUSTOMER)',
         (scope) => {
+            const roles = Reflect.getMetadata(METADATA_KEYS.ROLES, MerchantRestController.prototype, 'getAll');
             const account = { id: 'x1', username: 'x', roleScope: scope, roles: [ERole.SUPER_ADMIN] };
-            expect(() => rbacService.authorizeRoles(account as any, INTERNAL_SCOPES)).not.toThrow();
+            expect(() => rbacService.authorizeRoles(account as any, roles)).not.toThrow();
         },
     );
 
-    it('required=[] (bare @Authorized() cũ, KHÔNG dùng ở BaseRestController nữa) vẫn cho qua MỌI scope kể cả CUSTOMER — xác nhận đây chính là lỗ hổng đã vá, không phải hành vi mặc định sai', () => {
+    it('required=[] (hành vi bare @Authorized() cũ) vẫn cho qua MỌI scope kể cả CUSTOMER — xác nhận đây chính là lỗ hổng đã vá, không phải hành vi mặc định sai', () => {
         const customerAccount = { id: 'c1', username: 'a@b.com', roleScope: ERoleScrope.CUSTOMER, roles: [] };
         expect(() => rbacService.authorizeRoles(customerAccount as any, [])).not.toThrow();
     });

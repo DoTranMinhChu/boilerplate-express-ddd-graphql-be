@@ -15,6 +15,7 @@ import { AgencyEntity } from "@/modules/agency/domain/entities/agency.entity";
 import { UnauthorizedException } from "@/core/domain/exceptions/appException";
 import { GQLPermission } from "@/core/shared/decorators/graphQLPermission.decorator";
 import { EPermission } from "@/modules/permission/enums/permission.enum";
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 const TenantPagination = PaginatedResponse(TenantEntity)
 
 @Resolver(TenantEntity)
@@ -47,7 +48,7 @@ export class TenantResolver extends BaseGraphQLResolver<TenantEntity> {
     return await this.tenantService.findOneByCondition(options);
   }
   @Query('getOneTenant', { returnType: TenantEntity })
-  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+  @GQLAuthorized(INTERNAL_SCOPES)
   async getOneTenant(@Args('id') id: string, @GQLQuery() fieldOptions: GqlSelectOptions<TenantEntity>, @GQLCurrentUser() account: IAccount) {
     const options: FindOneOptions<TenantEntity> = { where: { id }, ...fieldOptions }
     if (account.agencyId) {
@@ -57,7 +58,7 @@ export class TenantResolver extends BaseGraphQLResolver<TenantEntity> {
   }
 
   @Query('getAllTenant', { returnType: TenantPagination })
-  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+  @GQLAuthorized(INTERNAL_SCOPES)
   async getAllTenant(@Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs, @GQLQuery() fieldOptions: GqlSelectOptions<TenantEntity>, @GQLCurrentUser() account: IAccount) {
     if (account.agencyId) {
       _.set(input, 'filter.agencyId', account.agencyId)

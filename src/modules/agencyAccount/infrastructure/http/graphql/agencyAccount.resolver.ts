@@ -13,6 +13,7 @@ import { ERole, ERoleScrope } from "@/core/shared/enums/account.enum";
 import { ChangePasswordInput, LoginInput } from "@/core/shared/dto/auth.dto";
 import { AgencyAccountLoginData } from "@/modules/agencyAccount/application/dto/agencyAccountLogin.dto";
 import _ from "lodash";
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 
 
 const AgencyAccountPagination = PaginatedResponse(AgencyAccountEntity);
@@ -28,14 +29,14 @@ export class AgencyAccountResolver extends BaseGraphQLResolver<AgencyAccountEnti
     }
 
     @Query('getOneAgencyAccount', { returnType: AgencyAccountEntity })
-    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+    @GQLAuthorized(INTERNAL_SCOPES)
     async getOneAgencyAccount(@Args('id') id: string, @GQLQuery() fieldOptions: GqlSelectOptions<AgencyAccountEntity>) {
         const options: FindOneOptions<AgencyAccountEntity> = { where: { id }, ...fieldOptions }
         return await this.agencyAccountService.findOneByCondition(options);
     }
 
     @Query('getAllAgencyAccount', { returnType: AgencyAccountPagination })
-    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+    @GQLAuthorized(INTERNAL_SCOPES)
     async getAllAgencyAccount(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<AgencyAccountEntity>,

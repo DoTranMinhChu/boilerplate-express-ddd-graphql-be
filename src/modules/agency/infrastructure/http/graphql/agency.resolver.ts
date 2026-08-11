@@ -8,6 +8,7 @@ import { CreateAgencyInput, UpdateAgencyInput } from "@/modules/agency/applicati
 import { AgencyService } from "@/modules/agency/application/services/agency.service";
 import { AgencyEntity } from "@/modules/agency/domain/entities/agency.entity";
 import { FindOneOptions } from "typeorm";
+import { INTERNAL_SCOPES } from '@/core/shared/constants/roleBundles';
 
 
 const AgencyPagination = PaginatedResponse(AgencyEntity);
@@ -23,7 +24,7 @@ export class AgencyResolver extends BaseGraphQLResolver<AgencyEntity> {
   }
 
   @Query('getOneAgency', { returnType: AgencyEntity })
-  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+  @GQLAuthorized(INTERNAL_SCOPES)
   async getOneAgency(
     @Args('id') id: string,
     @GQLQuery() fieldOptions: GqlSelectOptions<AgencyEntity>,
@@ -35,7 +36,7 @@ export class AgencyResolver extends BaseGraphQLResolver<AgencyEntity> {
   }
 
   @Query('getAllAgency', { returnType: AgencyPagination })
-  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
+  @GQLAuthorized(INTERNAL_SCOPES)
   async getAllAgency(
     @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
     @GQLQuery() fieldOptions: GqlSelectOptions<AgencyEntity>,
