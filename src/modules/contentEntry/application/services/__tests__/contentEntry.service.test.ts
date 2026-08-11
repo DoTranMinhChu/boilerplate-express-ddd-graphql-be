@@ -183,13 +183,13 @@ const UNIQUE_FIELD_CONTENT_TYPE = {
     ],
 };
 
-function makeUniqueFieldService(existsByFieldValueImpl: (contentTypeId: string, fieldKey: string, value: string, excludeId?: string) => Promise<boolean>) {
+function makeUniqueFieldService(existsByFieldValueImpl: (contentTypeId: string, fieldKey: string, value: string, locale: string, excludeId?: string) => Promise<boolean>) {
     const fakeContentTypeService = { findById: jest.fn(async () => UNIQUE_FIELD_CONTENT_TYPE) };
     const fakeRepo = {
         findOneByCondition: jest.fn(async () => null),
         existsByFieldValue: jest.fn(existsByFieldValueImpl),
         create: jest.fn(async (data: any) => ({ id: 'entry-1', ...data })),
-        findById: jest.fn(async () => ({ id: 'entry-1', contentTypeId: 'ct-unique', data: { tieuDe: 'Cũ', duongDan: 'duong-dan-cu', maSanPham: 'SP-001' } })),
+        findById: jest.fn(async () => ({ id: 'entry-1', contentTypeId: 'ct-unique', locale: 'vi', data: { tieuDe: 'Cũ', duongDan: 'duong-dan-cu', maSanPham: 'SP-001' } })),
         updateById: jest.fn(async (id: string, data: any) => ({ id, ...data })),
         // BaseService.updateById() gọi updateByCondition() -> this.repository.updateOneByCondition() (không
         // phải updateById ở tầng repository) — mock method THẬT SỰ được gọi trên đường đi qua BaseService,
@@ -211,7 +211,7 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
             data: { tieuDe: '5 Xu Hướng Thiết Kế', maSanPham: 'SP-002' },
         } as any);
         expect((result as any).data.duongDan).toBe('5-xu-huong-thiet-ke');
-        expect(fakeRepo.existsByFieldValue).toHaveBeenCalledWith('ct-unique', 'duongDan', '5-xu-huong-thiet-ke', undefined);
+        expect(fakeRepo.existsByFieldValue).toHaveBeenCalledWith('ct-unique', 'duongDan', '5-xu-huong-thiet-ke', 'vi', undefined);
     });
 
     it('tự thêm hậu tố -2 khi giá trị TỰ SINH bị trùng, không ném lỗi', async () => {
@@ -237,7 +237,7 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
             contentTypeId: 'ct-unique',
             data: { tieuDe: 'Bài viết bất kỳ', duongDan: 'duong-dan-tay', maSanPham: 'SP-005' },
         } as any);
-        expect(fakeRepo.existsByFieldValue).not.toHaveBeenCalledWith('ct-unique', 'tieuDe', expect.anything(), expect.anything());
+        expect(fakeRepo.existsByFieldValue).not.toHaveBeenCalledWith('ct-unique', 'tieuDe', expect.anything(), expect.anything(), expect.anything());
     });
 
     it('updateEntry: không kiểm tra lại unique nếu giá trị field KHÔNG đổi so với bản ghi hiện có', async () => {
@@ -249,9 +249,30 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
     });
 
     it('updateEntry: kiểm tra lại unique khi giá trị field ĐỔI, ném lỗi nếu trùng entry khác', async () => {
-        const { service } = makeUniqueFieldService(async (_ct, _key, value, excludeId) => value === 'duong-dan-moi' && excludeId === 'entry-1');
+        const { service } = makeUniqueFieldService(async (_ct, _key, value, _locale, excludeId) => value === 'duong-dan-moi' && excludeId === 'entry-1');
         await expect(service.updateEntry('entry-1', {
             data: { duongDan: 'duong-dan-moi' },
+        } as any)).rejects.toThrow(/đã tồn tại/);
+    });
+
+    it('2 entry CÙNG giá trị field unique nhưng KHÁC locale -- KHÔNG báo trùng', async () => {
+        // Entry đã tồn tại: locale 'vi', maSanPham 'SP-001'. Tạo entry mới locale 'en' cùng giá trị -> phải qua được.
+        const { service, fakeRepo } = makeUniqueFieldService(async (_ct, _key, value, locale) => value === 'SP-001' && locale === 'vi');
+        const result = await service.createEntry({
+            contentTypeId: 'ct-unique',
+            locale: 'en',
+            data: { tieuDe: 'Bài viết EN', duongDan: 'duong-dan-en', maSanPham: 'SP-001' },
+        } as any);
+        expect(result).toBeTruthy();
+        expect(fakeRepo.existsByFieldValue).toHaveBeenCalledWith('ct-unique', 'maSanPham', 'SP-001', 'en', undefined);
+    });
+
+    it('2 entry CÙNG giá trị field unique VÀ CÙNG locale -- báo trùng như trước (không regression)', async () => {
+        const { service } = makeUniqueFieldService(async (_ct, _key, value, locale) => value === 'SP-001' && locale === 'vi');
+        await expect(service.createEntry({
+            contentTypeId: 'ct-unique',
+            locale: 'vi',
+            data: { tieuDe: 'Bài viết VI', duongDan: 'duong-dan-vi', maSanPham: 'SP-001' },
         } as any)).rejects.toThrow(/đã tồn tại/);
     });
 });

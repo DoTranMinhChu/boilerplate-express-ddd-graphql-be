@@ -97,10 +97,15 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
      * riêng cho slug. Mutate `data` TẠI CHỖ khi tự sinh (để validateData() chạy sau đó thấy giá trị đã điền).
      * `previousData` (chỉ truyền ở updateEntry) để BỎ QUA kiểm tra khi giá trị không đổi so với bản ghi hiện
      * có — tránh 1 query DB thừa mỗi lần lưu, đúng tối ưu `assertSlugAvailable` đã áp dụng cho cơ chế cũ. */
+    /** `locale` (Phase 3, mục 3) — scope kiểm trùng theo (contentTypeId, locale) thay vì chỉ
+     * contentTypeId: 2 entry cùng contentType, KHÁC locale (vd 1 nhóm dịch "gioi-thieu" bản vi +
+     * "gioi-thieu" bản en) không còn bị báo trùng lẫn nhau — mỗi locale có không gian giá trị unique
+     * riêng, giống cách các CMS đa ngôn ngữ khác xử lý slug theo locale. */
     private async resolveUniqueFields(
         fields: FieldDefinitionType[],
         data: Record<string, any>,
         contentTypeId: string,
+        locale: string,
         excludeId?: string,
         previousData?: Record<string, any>,
     ): Promise<void> {
@@ -116,7 +121,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
                 if (source === undefined || source === null || source === '') continue;
                 let candidate = slugify(String(source));
                 if (f.unique) {
-                    candidate = await this.ensureUniqueValue(contentTypeId, f.key, candidate, excludeId);
+                    candidate = await this.ensureUniqueValue(contentTypeId, f.key, candidate, locale, excludeId);
                 }
                 data[f.key] = candidate;
                 continue;
@@ -124,7 +129,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
 
             if (!isEmpty && f.unique) {
                 if (previousData && previousData[f.key] === value) continue;
-                const taken = await this.contentEntryRepository.existsByFieldValue(contentTypeId, f.key, String(value), excludeId);
+                const taken = await this.contentEntryRepository.existsByFieldValue(contentTypeId, f.key, String(value), locale, excludeId);
                 if (taken) {
                     throw new ConflictException(`Giá trị "${value}" của field "${f.label}" đã tồn tại trong content type này.`);
                 }
@@ -132,10 +137,10 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         }
     }
 
-    private async ensureUniqueValue(contentTypeId: string, fieldKey: string, base: string, excludeId?: string): Promise<string> {
+    private async ensureUniqueValue(contentTypeId: string, fieldKey: string, base: string, locale: string, excludeId?: string): Promise<string> {
         let candidate = base;
         let suffix = 2;
-        while (await this.contentEntryRepository.existsByFieldValue(contentTypeId, fieldKey, candidate, excludeId)) {
+        while (await this.contentEntryRepository.existsByFieldValue(contentTypeId, fieldKey, candidate, locale, excludeId)) {
             if (suffix > 50) {
                 throw new ConflictException(`Không thể tự sinh giá trị duy nhất cho field "${fieldKey}" sau 50 lần thử (base: "${base}").`);
             }
@@ -189,7 +194,8 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         if (!contentType) throw new NotFoundException('Không tìm thấy content type.');
 
         const data = (input.data as Record<string, any>) || {};
-        await this.resolveUniqueFields(contentType.fields, data, input.contentTypeId as string);
+        const locale = (input.locale as string) || 'vi'; // khớp @Column({ default: 'vi' }) của entity khi client không truyền locale
+        await this.resolveUniqueFields(contentType.fields, data, input.contentTypeId as string, locale);
         this.validateData(contentType.fields, data);
 
         return this.create({ ...input, data });
@@ -206,7 +212,10 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         if (!contentType) throw new NotFoundException('Không tìm thấy content type.');
 
         const mergedData = { ...current.data, ...(input.data as Record<string, any> | undefined) };
-        await this.resolveUniqueFields(contentType.fields, mergedData, current.contentTypeId, id, current.data);
+        // UpdateContentEntryInput CÓ thể đổi cả locale (input.locale) — dùng locale SAU khi merge (giá trị
+        // entry sẽ có sau update) để kiểm trùng đúng scope, không dùng locale CŨ nếu đang đổi locale.
+        const locale = (input.locale as string) ?? current.locale;
+        await this.resolveUniqueFields(contentType.fields, mergedData, current.contentTypeId, locale, id, current.data);
         this.validateData(contentType.fields, mergedData);
 
         const entry = await this.updateById(id, { ...input, data: mergedData });

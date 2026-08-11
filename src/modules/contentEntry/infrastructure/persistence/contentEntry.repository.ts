@@ -112,13 +112,14 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
      * tự đặt qua Content Type builder, không phải input khách public, nhưng vẫn không nội suy thẳng vào SQL
      * mà không kiểm tra.
      */
-    async existsByFieldValue(contentTypeId: string, fieldKey: string, value: string, excludeId?: string): Promise<boolean> {
+    async existsByFieldValue(contentTypeId: string, fieldKey: string, value: string, locale: string, excludeId?: string): Promise<boolean> {
         if (!SAFE_FIELD_NAME.test(fieldKey)) {
             throw new BadRequestException(`Tên field "${fieldKey}" không hợp lệ.`);
         }
         const qb = this.repository.createQueryBuilder('e')
             .where('e."contentTypeId" = :contentTypeId', { contentTypeId })
-            .andWhere(`e.data ->> '${fieldKey}' = :value`, { value });
+            .andWhere(`e.data ->> '${fieldKey}' = :value`, { value })
+            .andWhere('e.locale = :locale', { locale });
         if (excludeId) qb.andWhere('e.id != :excludeId', { excludeId });
         const count = await qb.getCount();
         return count > 0;
