@@ -194,8 +194,22 @@ export class RBACService {
         const scopeValues = new Set(Object.values(ERoleScrope));
         const roleValues = new Set(Object.values(ERole));
 
+        // ERole.ADMIN và ERoleScrope.ADMIN CÙNG string 'ADMIN' (xem account.enum.ts) — 1 required
+        // array kiểu scope-only chứa ERoleScrope.ADMIN (vd @GQLAuthorized([ERoleScrope.ADMIN,
+        // ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT]), dùng để khôi phục hành vi
+        // bare @GQLAuthorized() cũ sau khi thêm scope CUSTOMER — xem Task 9 security addendum)
+        // TRƯỚC ĐÂY bị lệch nhánh: 'ADMIN' cũng khớp roleValues nên rơi vào nhánh "require role cụ
+        // thể" ở dưới, bỏ qua hoàn toàn requiredScopes -- account scope MERCHANT/AGENCY/TENANT hợp
+        // lệ bị throw ForbiddenException sai (bug phát hiện qua RBAC.service.test.ts khi viết test
+        // theo addendum, KHÔNG suy đoán). Sửa: nếu MỌI giá trị trong `required` đều là 1
+        // ERoleScrope hợp lệ, coi cả mảng là "chỉ require scope" -- an toàn 100% cho các site
+        // role-specific đã có vì KHÔNG có site nào trong codebase dùng 1 mảng role-only mà MỌI giá
+        // trị đều trùng 1 ERoleScrope (role luôn có ít nhất 1 giá trị như SUPER_ADMIN/AGENCY_OWNER/
+        // AGENCY_MANAGER/... không tồn tại trong ERoleScrope).
+        const isPureScopeArray = required.every(r => scopeValues.has(r as ERoleScrope));
+
         const requiredScopes = required.filter(r => scopeValues.has(r as ERoleScrope)) as ERoleScrope[];
-        const requiredRoles = required.filter(r => roleValues.has(r as ERole)) as ERole[];
+        const requiredRoles = isPureScopeArray ? [] : required.filter(r => roleValues.has(r as ERole)) as ERole[];
 
         // ── Chỉ require scope (không require role cụ thể) ────────
         // VD: @GQLAuthorized([ERoleScrope.MERCHANT])

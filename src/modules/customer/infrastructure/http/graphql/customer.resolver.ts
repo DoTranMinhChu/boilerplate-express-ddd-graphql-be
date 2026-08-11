@@ -1,7 +1,7 @@
 import { BaseGraphQLResolver } from "@/core/infrastructure/http/baseGraphql.resolver";
 import { GQLAuthorized, Args, GQLCurrentUser, GQLQuery, Mutation, Resolver, Query} from "@/core/shared/decorators/graphQL.decorators";
 import { IAccount, CACHE_TTL } from '@/core/shared/types/common.types';
-import { ERole } from "@/core/shared/enums/account.enum";
+import { ERole, ERoleScrope } from "@/core/shared/enums/account.enum";
 import { CustomerService } from "@/modules/customer/application/services/customer.service";
 import { CustomerEntity } from "@/modules/customer/domain/entities/customer.entity";
 import { GQLPaginationArgs, PaginatedResponse } from "@/core/shared/dto/pagination.dto";
@@ -21,7 +21,7 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
     }
 
     @Query('getOneCustomer', { returnType: CustomerEntity })
-    @GQLAuthorized()
+    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
     async getOneCustomer(
         @Args('id') id: string,
         @GQLQuery() fieldOptions: GqlSelectOptions<CustomerEntity>,
@@ -31,7 +31,7 @@ export class CustomerResolver extends BaseGraphQLResolver<CustomerEntity> {
     }
 
     @Query('getAllCustomer', { returnType: CustomerPagination })
-    @GQLAuthorized()
+    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
     async getAllCustomer(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<CustomerEntity>,

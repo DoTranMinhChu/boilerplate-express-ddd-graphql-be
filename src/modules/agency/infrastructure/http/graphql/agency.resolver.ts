@@ -1,7 +1,7 @@
 import { BaseGraphQLResolver } from "@/core/infrastructure/http/baseGraphql.resolver";
 import { GQLAuthorized, Args, GQLQuery, GQLCurrentUser, Resolver, Mutation, Query } from "@/core/shared/decorators/graphQL.decorators";
 import { PaginatedResponse, GQLPaginationArgs } from "@/core/shared/dto/pagination.dto";
-import { ERole } from "@/core/shared/enums/account.enum";
+import { ERole, ERoleScrope } from "@/core/shared/enums/account.enum";
 import { IAccount } from "@/core/shared/types/common.types";
 import { GqlSelectOptions } from "@/core/shared/types/graphql/types";
 import { CreateAgencyInput, UpdateAgencyInput } from "@/modules/agency/application/dto/agency.dto";
@@ -23,7 +23,7 @@ export class AgencyResolver extends BaseGraphQLResolver<AgencyEntity> {
   }
 
   @Query('getOneAgency', { returnType: AgencyEntity })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getOneAgency(
     @Args('id') id: string,
     @GQLQuery() fieldOptions: GqlSelectOptions<AgencyEntity>,
@@ -35,7 +35,7 @@ export class AgencyResolver extends BaseGraphQLResolver<AgencyEntity> {
   }
 
   @Query('getAllAgency', { returnType: AgencyPagination })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getAllAgency(
     @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
     @GQLQuery() fieldOptions: GqlSelectOptions<AgencyEntity>,

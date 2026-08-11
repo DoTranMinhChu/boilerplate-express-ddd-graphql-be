@@ -31,7 +31,7 @@ export class AdminResolver extends BaseGraphQLResolver<AdminEntity> {
         return this.adminService.findOneByCondition(options);
     }
     @Query('getAllAdmin', { returnType: AdminPagination })
-    @GQLAuthorized()
+    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
     async getAllAdmin(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<AdminEntity>,

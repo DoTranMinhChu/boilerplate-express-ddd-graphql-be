@@ -28,7 +28,7 @@ export class MerchantResolver extends BaseGraphQLResolver<MerchantEntity> {
   }
 
   @Query('getOneMerchant', { returnType: MerchantEntity })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getOneMerchant(
     @Args('id') id: string,
     @GQLQuery() fieldOptions: GqlSelectOptions<MerchantEntity>,
@@ -39,7 +39,7 @@ export class MerchantResolver extends BaseGraphQLResolver<MerchantEntity> {
   }
 
   @Query('getAllMerchant', { returnType: MerchantPagination })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getAllMerchant(
     @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
     @GQLQuery() fieldOptions: GqlSelectOptions<MerchantEntity>,

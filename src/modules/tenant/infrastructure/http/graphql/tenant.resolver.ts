@@ -8,7 +8,7 @@ import { TenantEntity } from "@/modules/tenant/domain/entities/tenant.entity";
 import { GQLPaginationArgs, PaginatedResponse } from "@/core/shared/dto/pagination.dto";
 import { CreateTenantInput, UpdateTenantInput } from "@/modules/tenant/application/dto/tenant.dto";
 import { FindOneOptions } from "typeorm";
-import { ERole } from "@/core/shared/enums/account.enum";
+import { ERole, ERoleScrope } from "@/core/shared/enums/account.enum";
 import * as _ from "lodash"
 import { GqlSelectOptions } from "@/core/shared/types/graphql/types";
 import { AgencyEntity } from "@/modules/agency/domain/entities/agency.entity";
@@ -47,7 +47,7 @@ export class TenantResolver extends BaseGraphQLResolver<TenantEntity> {
     return await this.tenantService.findOneByCondition(options);
   }
   @Query('getOneTenant', { returnType: TenantEntity })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getOneTenant(@Args('id') id: string, @GQLQuery() fieldOptions: GqlSelectOptions<TenantEntity>, @GQLCurrentUser() account: IAccount) {
     const options: FindOneOptions<TenantEntity> = { where: { id }, ...fieldOptions }
     if (account.agencyId) {
@@ -57,7 +57,7 @@ export class TenantResolver extends BaseGraphQLResolver<TenantEntity> {
   }
 
   @Query('getAllTenant', { returnType: TenantPagination })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getAllTenant(@Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs, @GQLQuery() fieldOptions: GqlSelectOptions<TenantEntity>, @GQLCurrentUser() account: IAccount) {
     if (account.agencyId) {
       _.set(input, 'filter.agencyId', account.agencyId)

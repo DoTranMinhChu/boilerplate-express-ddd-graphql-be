@@ -34,7 +34,7 @@ export class TenantAccountResolver extends BaseGraphQLResolver<TenantAccountEnti
     return await this.tenantAccountService.findOneByCondition(options);
   }
   @Query('getOneTenantAccount', { returnType: TenantAccountEntity })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getOneTenantAccount(@Args('id') id: string, @GQLCurrentUser() account: IAccount, @GQLQuery() fieldOptions: GqlSelectOptions<AgencyEntity>) {
     const options: FindOneOptions<TenantAccountEntity> = { where: { id }, ...fieldOptions }
     if (account.agencyId) {
@@ -47,7 +47,7 @@ export class TenantAccountResolver extends BaseGraphQLResolver<TenantAccountEnti
   }
 
   @Query('getAllTenantAccount', { returnType: TenantAccountPagination })
-  @GQLAuthorized()
+  @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
   async getAllTenantAccount(
     @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
     @GQLCurrentUser() account: IAccount,

@@ -28,14 +28,14 @@ export class AgencyAccountResolver extends BaseGraphQLResolver<AgencyAccountEnti
     }
 
     @Query('getOneAgencyAccount', { returnType: AgencyAccountEntity })
-    @GQLAuthorized()
+    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
     async getOneAgencyAccount(@Args('id') id: string, @GQLQuery() fieldOptions: GqlSelectOptions<AgencyAccountEntity>) {
         const options: FindOneOptions<AgencyAccountEntity> = { where: { id }, ...fieldOptions }
         return await this.agencyAccountService.findOneByCondition(options);
     }
 
     @Query('getAllAgencyAccount', { returnType: AgencyAccountPagination })
-    @GQLAuthorized()
+    @GQLAuthorized([ERoleScrope.ADMIN, ERoleScrope.MERCHANT, ERoleScrope.AGENCY, ERoleScrope.TENANT])
     async getAllAgencyAccount(
         @Args('input', { type: GQLPaginationArgs }) input: GQLPaginationArgs,
         @GQLQuery() fieldOptions: GqlSelectOptions<AgencyAccountEntity>,
