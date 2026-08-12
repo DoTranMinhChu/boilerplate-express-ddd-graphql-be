@@ -259,7 +259,9 @@ export class ContentEntryUsageService {
                 mode?: string;
                 contentTypeKey?: string;
                 entryIds?: string[];
-                filter?: { field: string; valueSource: string; staticValue?: string }[];
+                filter?: { field: string; valueSource: string; staticValue?: string; operator?: string }[];
+                sort?: { field: string; direction?: 'ASC' | 'DESC' };
+                limit?: number;
                 sourceContentTypeId?: string;
             } | undefined;
             if (!page || !repeat) continue;
@@ -284,11 +286,13 @@ export class ContentEntryUsageService {
                 if (!hasUrlDependentFilter) {
                     const staticFilters = filters
                         .filter((f) => f.valueSource === 'static' && f.staticValue !== undefined && f.staticValue !== '')
-                        .map((f) => ({ field: f.field, operator: '$eq', value: f.staticValue! }));
+                        .map((f) => ({ field: f.field, operator: f.operator || '$eq', value: f.staticValue! }));
                     const resolved = await this.contentEntryRepository.findPublicList({
                         contentTypeId: entry.contentTypeId,
                         filters: staticFilters,
                         visibilityExclusions,
+                        sort: repeat.sort?.field ? { field: repeat.sort.field, direction: repeat.sort.direction || 'DESC' } : undefined,
+                        limit: repeat.limit,
                     });
                     if (resolved.some((e) => e.id === entryId)) {
                         results.push({

@@ -356,4 +356,46 @@ describe('ContentEntryUsageService — nhánh Node (Phase 0 M1 Task 6)', () => {
 
         expect(results).toContainEqual(expect.objectContaining({ pageId: 'page-2', nodeId: 'node-1', matchKind: 'pinned' }));
     });
+
+    // Fix (Task 6 review, Important): nhánh dynamic-confirmed của Node trước đây KHÔNG truyền
+    // sort/limit xuống findPublicList (nhánh Section tương ứng CÓ truyền) và hardcode mọi
+    // filter operator thành '$eq' bất kể f.operator thật là gì — khiến 1 Node có `repeat.limit`
+    // bị kiểm tra khớp trên TOÀN BỘ kết quả không giới hạn/không sort thay vì đúng kết quả thật
+    // sẽ render, có thể báo sai dynamic-confirmed cho 1 entry lẽ ra không nằm trong `limit` thật.
+    // Test này giả lập findPublicList PHÂN BIỆT theo đúng limit/operator được truyền — chỉ khi
+    // limit=1 VÀ operator='$gt' (đúng operator khai báo trong repeat.filter, KHÔNG bị hardcode
+    // '$eq') mới trả về entry-1, để bug cũ (thiếu limit, sai operator) sẽ khiến test này fail.
+    it('matchKind "dynamic-confirmed" khi Node repeat.source=own, mode=dynamic truyền ĐÚNG sort/limit/operator xuống findPublicList (Fix review Task 6)', async () => {
+        const { service, pageRepository, nodeRepository, contentEntryRepository } = makeNodeBranchService();
+        pageRepository.findByCondition.mockResolvedValue([
+            { id: 'page-3', internalName: 'Trang tin nổi bật', path: '/noi-bat', dataBinding: null },
+        ]);
+        nodeRepository.findByCondition.mockResolvedValue([
+            {
+                id: 'node-2', pageId: 'page-3', type: 'frame',
+                repeat: {
+                    source: 'own', mode: 'dynamic', contentTypeKey: 'ct-1',
+                    filter: [{ field: 'viewCount', valueSource: 'static', staticValue: '100', operator: '$gt' }],
+                    sort: { field: 'createdAt', direction: 'ASC' },
+                    limit: 1,
+                },
+            },
+        ]);
+        (contentEntryRepository.findPublicList as jest.Mock).mockImplementation(async (args: any) => {
+            // Lượt "hiển thị công khai thật" chung đầu hàm luôn gọi với filters: [] — cho qua.
+            if (!args.filters?.length) return [{ id: 'entry-1' }];
+            const correctlyScoped = args.limit === 1 && args.filters[0]?.operator === '$gt';
+            return correctlyScoped ? [{ id: 'entry-1' }] : [];
+        });
+
+        const results = await service.findUsageLocations('entry-1');
+
+        expect(results).toContainEqual(expect.objectContaining({ pageId: 'page-3', nodeId: 'node-2', matchKind: 'dynamic-confirmed' }));
+        expect(contentEntryRepository.findPublicList).toHaveBeenCalledWith(expect.objectContaining({
+            contentTypeId: 'ct-1',
+            filters: [{ field: 'viewCount', operator: '$gt', value: '100' }],
+            sort: { field: 'createdAt', direction: 'ASC' },
+            limit: 1,
+        }));
+    });
 });
