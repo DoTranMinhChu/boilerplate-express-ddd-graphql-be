@@ -39,3 +39,5 @@ temp/
 
 # Superpowers SDD scratch (ledger, task briefs, review packages)
 .superpowers/
+
+.worktrees/
