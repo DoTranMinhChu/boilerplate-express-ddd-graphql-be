@@ -14,6 +14,8 @@ interface Setup {
     findPublicListResult?: any[];
     /** Kết quả `PageService.findDetailBinding` giả lập — dùng cho nhánh 'content-detail'. */
     detailBinding?: { path: string; bindings: { paramName: string; fieldKey: string }[] } | null;
+    /** Phase 0 M1 Task 6: Node giả lập cho `NodeRepository.findByCondition` — mặc định []. */
+    nodes?: any[];
 }
 
 function makeService(setup: Setup) {
@@ -40,14 +42,20 @@ function makeService(setup: Setup) {
     const fakePageService = {
         findDetailBinding: jest.fn(async () => setup.detailBinding ?? null),
     };
+    // Phase 0 M1 Task 6: nhánh Node mới cần tham số 6 `nodeRepository` — mock trả về [] mặc định
+    // để KHÔNG ảnh hưởng các test Section hiện có (không hit real DB qua default `new NodeRepository()`).
+    const fakeNodeRepository = {
+        findByCondition: jest.fn(async () => setup.nodes ?? []),
+    };
     const service = new ContentEntryUsageService(
         fakeContentEntryRepository as any,
         fakePageRepository as any,
         fakeSectionRepository as any,
         fakeContentTypeService as any,
         fakePageService as any,
+        fakeNodeRepository as any,
     );
-    return { service, fakeContentEntryRepository, fakePageRepository, fakeSectionRepository, fakeContentTypeService, fakePageService };
+    return { service, fakeContentEntryRepository, fakePageRepository, fakeSectionRepository, fakeContentTypeService, fakePageService, fakeNodeRepository };
 }
 
 const ENTRY = { id: 'entry-1', contentTypeId: 'ct-1', slug: 'bai-viet-a', locale: 'vi', data: { slug: 'bai-viet-a' } };
@@ -295,5 +303,57 @@ describe('ContentEntryUsageService.findUsageLocations', () => {
         expect(fakeSectionRepository.findByCondition).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({ enabled: true }),
         }));
+    });
+});
+
+// Phase 0 M1 Task 6: nhánh quét Node/Page.dataBinding CẠNH nhánh Section trên — dùng
+// makeService riêng (khớp shape literal test trong task-6-brief.md) để không phải sửa lại
+// toàn bộ setup Section ở trên; entry mặc định luôn hiển thị công khai (findPublicList trả
+// [{id: 'entry-1'}]) trừ khi override.
+function makeNodeBranchService(overrides: Record<string, any> = {}) {
+    const contentEntryRepository = {
+        findById: jest.fn(async () => ({ id: 'entry-1', contentTypeId: 'ct-1', locale: 'vi', data: { slug: 'bai-viet-a' } })),
+        hasColumn: jest.fn(() => false),
+        findPublicList: jest.fn(async () => [{ id: 'entry-1' }]), // mặc định: entry đang xét là public
+    };
+    const pageRepository = { findByCondition: jest.fn(async (): Promise<any[]> => []) };
+    const sectionRepository = { findByCondition: jest.fn(async (): Promise<any[]> => []) };
+    const nodeRepository = { findByCondition: jest.fn(async (): Promise<any[]> => []) };
+    const contentTypeService = { findById: jest.fn(async () => ({ contentVisibilityRules: [] })) };
+    const pageService = { findDetailBinding: jest.fn(async (): Promise<any> => null) };
+    const service = new ContentEntryUsageService(
+        contentEntryRepository as any,
+        pageRepository as any,
+        sectionRepository as any,
+        contentTypeService as any,
+        pageService as any,
+        nodeRepository as any,
+    );
+    return { service, contentEntryRepository, pageRepository, nodeRepository, pageService, ...overrides };
+}
+
+describe('ContentEntryUsageService — nhánh Node (Phase 0 M1 Task 6)', () => {
+    it('matchKind "detail" khi Page.dataBinding.mode=detail khớp contentTypeId của entry', async () => {
+        const { service, pageRepository, pageService } = makeNodeBranchService();
+        pageRepository.findByCondition.mockResolvedValue([
+            { id: 'page-1', internalName: 'Blog', path: '/blog/:slug', dataBinding: { mode: 'detail', contentTypeId: 'ct-1' } },
+        ]);
+        pageService.findDetailBinding.mockResolvedValue({ path: '/blog/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+
+        const results = await service.findUsageLocations('entry-1');
+
+        expect(results).toContainEqual(expect.objectContaining({ pageId: 'page-1', matchKind: 'detail', url: '/blog/bai-viet-a' }));
+    });
+
+    it('matchKind "pinned" khi 1 Node có repeat.source=own, mode=manual, entryIds chứa entryId', async () => {
+        const { service, pageRepository, nodeRepository } = makeNodeBranchService();
+        pageRepository.findByCondition.mockResolvedValue([{ id: 'page-2', internalName: 'Trang chủ', path: '/', dataBinding: null }]);
+        nodeRepository.findByCondition.mockResolvedValue([
+            { id: 'node-1', pageId: 'page-2', type: 'frame', repeat: { source: 'own', mode: 'manual', contentTypeKey: 'ct-1', entryIds: ['entry-1', 'entry-2'] } },
+        ]);
+
+        const results = await service.findUsageLocations('entry-1');
+
+        expect(results).toContainEqual(expect.objectContaining({ pageId: 'page-2', nodeId: 'node-1', matchKind: 'pinned' }));
     });
 });
