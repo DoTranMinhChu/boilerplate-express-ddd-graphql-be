@@ -8,6 +8,7 @@ import { RedirectService } from './redirect.service';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
 import { SectionRepository } from '@/modules/section/infrastructure/persistence/section.repository';
 import { SiteLocaleSettingsService } from '@/modules/siteSettings/application/services/siteLocaleSettings.service';
+import { NodeService } from '@/modules/node/application/services/node.service';
 import { DeepPartial, In, Like } from 'typeorm';
 
 export class PageService extends BaseService<PageEntity> {
@@ -17,6 +18,7 @@ export class PageService extends BaseService<PageEntity> {
         private readonly pageVersionRepository = new PageVersionRepository(),
         private readonly sectionRepository = new SectionRepository(),
         private readonly siteLocaleSettingsService = new SiteLocaleSettingsService(),
+        private readonly nodeService = new NodeService(),
     ) {
         super(pageRepository, 'Page');
     }
@@ -75,7 +77,21 @@ export class PageService extends BaseService<PageEntity> {
         assertValidPagePath(path);
         await this.assertPathNotLocaleShadow(path, data.locale as string | undefined);
         await this.assertPathAvailable(path);
-        return this.create({ ...data, path });
+        const page = await this.create({ ...data, path });
+        // Task 3 (Phase 0 M1): mọi Page mới LUÔN có root Node ngay lúc tạo — không còn trạng thái
+        // "Page tồn tại nhưng rootNodeId null" (trước đây root Node chỉ được tạo tay qua Node Builder
+        // SAU khi Page đã tồn tại).
+        const rootNode = await this.nodeService.createNode({
+            pageId: page.id,
+            parentId: undefined,
+            type: 'frame',
+            layoutMode: 'flow',
+            order: 0,
+            style: {},
+            layout: {},
+            props: {},
+        });
+        return this.updateById(page.id, { rootNodeId: rootNode.id } as DeepPartial<PageEntity>);
     }
 
     /**
