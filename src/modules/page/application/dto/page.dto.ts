@@ -22,6 +22,7 @@ export class CreatePageInput {
     @Field({ type: SeoInput, nullable: true }) seo?: SeoInput;
     @Field({ type: GraphQLMixed, nullable: true }) style?: Record<string, string>;
     @Field({ type: GraphQLMixed, nullable: true }) seoFieldMapping?: Record<string, string>;
+    @Field({ type: GraphQLMixed, nullable: true }) dataBinding?: Record<string, any>;
 }
 
 @InputType('UpdatePageInput')
