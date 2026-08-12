@@ -215,6 +215,37 @@ describe('PageVersionService.restore — Finding 1 (Critical): snapshot.nodes to
         // deleteSubtree duy nhất, đúng bằng node MỚI vừa dọn, không phải node cũ.
         expect(nodeService.deleteSubtree).toHaveBeenCalledTimes(1);
     });
+
+    // Regression-proofing (re-review round 2, Minor #2): dual-format snapshot (CẢ 2 key có mặt)
+    // nhưng nhánh Node hỏng (orphan) -- xác nhận thứ tự Node-TRƯỚC-Section vẫn đứng, để 1 refactor
+    // sau này lỡ đổi thứ tự (chạy Section trước) sẽ bị bắt ngay bởi test này, không phải lộ ra thành
+    // bug thật lúc chạy (đây chính xác là lớp lỗi đã gây ra round 1 và round 2 review trước đó).
+    it('snapshot có CẢ sections VÀ nodes, nhưng nhánh Node hỏng (orphan) -> throw TRƯỚC KHI đụng gì tới Section', async () => {
+        const { service, pageVersionRepository, nodeService, sectionService } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: {
+                page: { id: 'page-1' },
+                sections: [
+                    { id: 'sec-snap-1', pageId: 'page-1', type: 'hero', order: 0, enabled: true, content: {} },
+                ],
+                nodes: [
+                    { id: 'orphan-1', pageId: 'page-1', parentId: 'ghost-parent', order: 0, type: 'text' },
+                ],
+            },
+        });
+        nodeService.findByPage.mockResolvedValueOnce([{ id: 'current-node-1', parentId: null }]);
+        sectionService.findByCondition.mockResolvedValueOnce([{ id: 'current-sec-1' }]);
+
+        await expect(service.restore('page-1', 'v1')).rejects.toThrow(/hỏng/);
+
+        // Node block chạy trước, hỏng, throw -- Section block (đứng SAU trong hàm) chưa từng chạy.
+        expect(sectionService.create).not.toHaveBeenCalled();
+        expect(sectionService.deleteById).not.toHaveBeenCalled();
+        expect(nodeService.createNode).not.toHaveBeenCalled();
+        expect(nodeService.deleteSubtree).not.toHaveBeenCalled();
+    });
 });
 
 describe('PageVersionService.restore — Finding 2 (Important): khôi phục CẢ Section VÀ Node từ snapshot', () => {
