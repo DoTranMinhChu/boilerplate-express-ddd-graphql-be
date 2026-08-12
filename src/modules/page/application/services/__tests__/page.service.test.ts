@@ -62,6 +62,132 @@ describe('PageService.findDetailBinding (Phase 0 M1 — đọc Page.dataBinding)
         const { service } = makeService({ findByCondition: jest.fn(async () => []) });
         expect(await service.findDetailBinding('ct-khong-ton-tai')).toBeNull();
     });
+
+    // Review fix (Task 2): khôi phục coverage cho logic tie-break/candidate BYTE-IDENTICAL với code
+    // cũ (Section scan) -- chỉ đổi nguồn candidate sang Page.dataBinding, hành vi sort/fallback giữ nguyên.
+    it('nhiều Page cùng khớp contentTypeId, không truyền locale -> lấy Page có createdAt SỚM NHẤT', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-moi', path: '/blog-moi/:slug', locale: 'vi', createdAt: new Date('2026-03-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+                {
+                    id: 'page-cu', path: '/blog-cu/:slug', locale: 'vi', createdAt: new Date('2026-01-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+            ]),
+        });
+
+        const result = await service.findDetailBinding('ct-bai-viet');
+
+        expect(result).toEqual({ path: '/blog-cu/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+    });
+
+    it('nhiều candidate ở nhiều locale khác nhau, truyền locale khớp 1 candidate -> ưu tiên candidate khớp locale (không phải candidate createdAt sớm nhất)', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-vi', path: '/blog-vi/:slug', locale: 'vi', createdAt: new Date('2026-01-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+                {
+                    id: 'page-en', path: '/en/blog-en/:slug', locale: 'en', createdAt: new Date('2026-03-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+            ]),
+        });
+
+        const result = await service.findDetailBinding('ct-bai-viet', 'en');
+
+        expect(result).toEqual({ path: '/en/blog-en/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+    });
+
+    it('nhiều candidate tồn tại, truyền locale KHÔNG khớp candidate nào -> fallback candidate createdAt sớm nhất', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-moi', path: '/blog-moi/:slug', locale: 'vi', createdAt: new Date('2026-03-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+                {
+                    id: 'page-cu', path: '/blog-cu/:slug', locale: 'vi', createdAt: new Date('2026-01-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+            ]),
+        });
+
+        const result = await service.findDetailBinding('ct-bai-viet', 'ja');
+
+        expect(result).toEqual({ path: '/blog-cu/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+    });
+
+    it('không truyền locale (undefined) với nhiều candidate -> vẫn fallback candidate createdAt sớm nhất, không regression', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-moi', path: '/blog-moi/:slug', locale: 'vi', createdAt: new Date('2026-03-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+                {
+                    id: 'page-cu', path: '/blog-cu/:slug', locale: 'vi', createdAt: new Date('2026-01-01'),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
+                },
+            ]),
+        });
+
+        const result = await service.findDetailBinding('ct-bai-viet');
+
+        expect(result).toEqual({ path: '/blog-cu/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+    });
+
+    it('dataBinding.genericFilters có 2 filter pathParam -> bindings trả về 2 phần tử, map đúng field->fieldKey và paramName->paramName', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-1', path: '/danh-muc/:tenDanhMuc/:slug', locale: 'vi', createdAt: new Date('2026-01-01'),
+                    dataBinding: {
+                        mode: 'detail',
+                        contentTypeId: 'ct-san-pham',
+                        genericFilters: [
+                            { field: 'danhMuc', valueSource: 'pathParam', paramName: 'tenDanhMuc' },
+                            { field: 'slug', valueSource: 'pathParam', paramName: 'slug' },
+                        ],
+                    },
+                },
+            ]),
+        });
+
+        const result = await service.findDetailBinding('ct-san-pham', 'vi');
+
+        expect(result).toEqual({
+            path: '/danh-muc/:tenDanhMuc/:slug',
+            bindings: [
+                { paramName: 'tenDanhMuc', fieldKey: 'danhMuc' },
+                { paramName: 'slug', fieldKey: 'slug' },
+            ],
+        });
+    });
+
+    it('dataBinding.genericFilters trộn lẫn 1 pathParam + 1 static -> null (guard .every() từ chối filter list hỗn hợp)', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-1', path: '/danh-muc/:tenDanhMuc/:slug', locale: 'vi', createdAt: new Date('2026-01-01'),
+                    dataBinding: {
+                        mode: 'detail',
+                        contentTypeId: 'ct-san-pham',
+                        genericFilters: [
+                            { field: 'danhMuc', valueSource: 'pathParam', paramName: 'tenDanhMuc' },
+                            { field: 'trangThai', valueSource: 'static', staticValue: 'active' },
+                        ],
+                    },
+                },
+            ]),
+        });
+
+        expect(await service.findDetailBinding('ct-san-pham', 'vi')).toBeNull();
+    });
 });
 
 describe('PageService.resolveSitemapSeo', () => {
