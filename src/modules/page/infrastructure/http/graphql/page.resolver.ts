@@ -361,8 +361,16 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         @Args('label', { type: String }) label: string | undefined,
         @GQLCurrentUser() account: IAccount,
     ) {
-        const nodes = await this.nodeService.findByPage(id);
-        return this.pageService.publish(id, nodes, account?.id, label);
+        // Final whole-branch review Finding 2 (Important, plan-level): Section vẫn là hệ render
+        // SỐNG song song Node trong suốt M1/M2 (gỡ Section là 1 milestone RIÊNG, sau này) --
+        // publish() phải snapshot CẢ 2, không chỉ Node, để "Khôi phục" còn có tác dụng lên nội
+        // dung THẬT đang hiển thị công khai. Khôi phục lại đúng cách gọi `sectionService` trước
+        // Task 4 (xem git history của file này ngay trước commit đổi snapshot sang chỉ-Node).
+        const [sections, nodes] = await Promise.all([
+            this.sectionService.findByCondition({ where: { pageId: id }, order: { order: 'ASC' } as any }),
+            this.nodeService.findByPage(id),
+        ]);
+        return this.pageService.publish(id, sections, nodes, account?.id, label);
     }
 
     @Mutation('unpublishPage', { returnType: PageEntity })

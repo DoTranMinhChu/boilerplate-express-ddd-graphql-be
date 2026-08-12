@@ -465,25 +465,42 @@ describe('PageService.createTranslation', () => {
     function makeSiteLocaleSettingsService(defaultLocale = 'vi') {
         return { getSettings: jest.fn(async () => ({ defaultLocale, enabledLocales: ['vi', 'en'] })) };
     }
+    // Final whole-branch review Finding 4 (Important): createTranslation() giờ cũng tạo root Node
+    // cho Page dịch mới (cùng bất biến Task 3 áp cho createPage()) -- các test ở describe này cần
+    // 1 fake NodeService (6th constructor param) để không rơi về `new NodeService()` thật (đụng
+    // TypeORM/DB thật, không có trong môi trường unit test), VÀ fakePageRepo cần thêm
+    // `updateOneByCondition`/`entityClassName` để updateById(rootNodeId) chạy được qua BaseService.
+    function makeFakeNodeService() {
+        return { createNode: jest.fn(async () => ({ id: 'node-root-translation' })) };
+    }
 
-    it('nhân bản Page + Section sang locale mới, giữ translationGroupId', async () => {
+    it('nhân bản Page + Section sang locale mới, giữ translationGroupId, VÀ tạo root Node cho bản dịch mới (Finding 4)', async () => {
         const source = makeSourcePage();
         const sections = [
             { id: 'sec-1', pageId: 'page-1', type: 'hero', order: 0, enabled: true, content: { a: 1 }, style: { theme: 'dark' }, animation: [{ target: 'x' }], dataSource: { mode: 'manual' }, fieldMapping: { slot: 'k' }, visibilityRules: { desktop: true }, responsiveSettings: { spacing: 'md' }, layoutPreset: 'default', theme: 'light' },
             { id: 'sec-2', pageId: 'page-1', type: 'text', order: 1, enabled: false, content: { b: 2 }, style: {}, animation: [], dataSource: undefined, fieldMapping: undefined, visibilityRules: undefined, responsiveSettings: undefined, layoutPreset: undefined, theme: undefined },
         ];
+        let createdNewPage: any;
         const fakePageRepo = {
             findById: jest.fn(async () => source),
             findOneByCondition: jest.fn(async () => null),
-            create: jest.fn(async (data: any) => ({ id: 'page-2', ...data })),
+            create: jest.fn(async (data: any) => {
+                createdNewPage = { id: 'page-2', ...data };
+                return createdNewPage;
+            }),
+            // updateById(rootNodeId) merges onto the just-created page -- mirrors real DB update
+            // semantics (partial update on top of the existing row), not a bare overwrite.
+            updateOneByCondition: jest.fn(async (options: any, data: any) => ({ ...createdNewPage, ...data, id: options.where.id })),
+            entityClassName: jest.fn(() => 'Page'),
         };
         const fakeSectionRepo = {
             findByCondition: jest.fn(async () => sections),
             create: jest.fn(async (data: any) => ({ id: 'new-sec', ...data })),
         };
         const fakeSiteLocaleSettingsService = makeSiteLocaleSettingsService('vi');
+        const fakeNodeService = makeFakeNodeService();
 
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, fakeSiteLocaleSettingsService as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, fakeSiteLocaleSettingsService as any, fakeNodeService as any);
         const result = await service.createTranslation('page-1', 'en');
 
         expect(result.translationGroupId).toBe('group-1');
@@ -498,28 +515,37 @@ describe('PageService.createTranslation', () => {
             visibilityRules: { desktop: true }, responsiveSettings: { spacing: 'md' }, layoutPreset: 'default', theme: 'light',
         }));
         expect(fakeSectionRepo.create).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-2', type: 'text', order: 1, enabled: false }));
+        // Finding 4: root Node PHẢI được tạo cho Page dịch mới, và rootNodeId PHẢI được repoint --
+        // cùng bất biến Task 3 (createPage()), không phân biệt đường tạo Page nào.
+        expect(fakeNodeService.createNode).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-2', parentId: undefined, type: 'frame' }));
+        expect(result.rootNodeId).toBe('node-root-translation');
     });
 
     // Important #2 fix (Task 16 review): trước fix, object truyền vào create() thiếu
     // headerPresetId/footerPresetId/style/seoFieldMapping/contentTypeId -- bản dịch âm thầm rơi về
     // preset MẶC ĐỊNH, mất style nền/font toàn trang, và SEO động (mục δ) ngừng hoạt động trên MỌI
     // bản dịch. `seo` (SEO tĩnh) vẫn CỐ Ý KHÔNG clone -- không được xuất hiện trong assertion dưới.
-    it('clone ĐỦ field page-level còn thiếu: headerPresetId/footerPresetId/style/seoFieldMapping/contentTypeId', async () => {
+    // Finding 4 fix (final whole-branch review): thêm `dataBinding` vào danh sách clone -- thiếu nó
+    // khiến bản dịch không thể được `findDetailBinding()` suy ra URL riêng theo locale.
+    it('clone ĐỦ field page-level còn thiếu: headerPresetId/footerPresetId/style/seoFieldMapping/contentTypeId/dataBinding', async () => {
         const source = makeSourcePage({
             headerPresetId: 'header-1',
             footerPresetId: 'footer-1',
             style: { backgroundColor: '#000', fontFamily: 'Inter' },
             seoFieldMapping: { title: 'tieuDe', robotsIndex: 'anHien' },
             contentTypeId: 'ct-tin-tuc',
+            dataBinding: { mode: 'detail', contentTypeId: 'ct-tin-tuc', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
             seo: { title: 'SEO gốc, KHÔNG được clone' },
         });
         const fakePageRepo = {
             findById: jest.fn(async () => source),
             findOneByCondition: jest.fn(async () => null),
             create: jest.fn(async (data: any) => ({ id: 'page-2', ...data })),
+            updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
+            entityClassName: jest.fn(() => 'Page'),
         };
         const fakeSectionRepo = { findByCondition: jest.fn(async () => []), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any, makeFakeNodeService() as any);
 
         await service.createTranslation('page-1', 'en');
 
@@ -529,6 +555,7 @@ describe('PageService.createTranslation', () => {
             style: { backgroundColor: '#000', fontFamily: 'Inter' },
             seoFieldMapping: { title: 'tieuDe', robotsIndex: 'anHien' },
             contentTypeId: 'ct-tin-tuc',
+            dataBinding: { mode: 'detail', contentTypeId: 'ct-tin-tuc', genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] },
         }), undefined);
         const createdArg = fakePageRepo.create.mock.calls[0][0];
         expect(createdArg.seo).toBeUndefined();
@@ -540,9 +567,11 @@ describe('PageService.createTranslation', () => {
             findById: jest.fn(async () => source),
             findOneByCondition: jest.fn(async () => null),
             create: jest.fn(async (data: any) => ({ id: 'page-2', ...data })),
+            updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
+            entityClassName: jest.fn(() => 'Page'),
         };
         const fakeSectionRepo = { findByCondition: jest.fn(async () => []), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any, makeFakeNodeService() as any);
         await service.createTranslation('page-1', 'vi');
         expect(fakePageRepo.create).toHaveBeenCalledWith(expect.objectContaining({ path: '/gioi-thieu', locale: 'vi' }), undefined);
     });
@@ -636,5 +665,35 @@ describe('PageService.findTranslations', () => {
         const service = new PageService(fakePageRepo as any);
         const result = await service.findTranslations('group-empty', 'vi');
         expect(result).toEqual([]);
+    });
+});
+
+// Final whole-branch review Finding 2 (Important, plan-level) + Minor "untyped/untested publish()
+// snapshot shape": Section vẫn là hệ render SỐNG trong suốt M1/M2 -- publish() phải snapshot CẢ
+// sections VÀ nodes, không phải chỉ nodes (Task 4 đã âm thầm bỏ mất sections khỏi snapshot).
+describe('PageService.publish (Finding 2 — snapshot phải có ĐỦ {page, sections, nodes})', () => {
+    it('PageVersion.snapshot được tạo với ĐÚNG shape {page, sections, nodes}, không thiếu key nào', async () => {
+        const page = { id: 'page-1', path: '/gioi-thieu', status: 'DRAFT' };
+        const updatedPage = { ...page, status: 'PUBLISHED', publishedAt: new Date('2026-08-12') };
+        const fakePageRepo = {
+            findById: jest.fn(async () => page),
+            updateOneByCondition: jest.fn(async (options: any, data: any) => ({ ...updatedPage, ...data, id: options.where.id })),
+            entityClassName: jest.fn(() => 'Page'),
+        };
+        const fakePageVersionRepo = { create: jest.fn(async (data: any) => ({ id: 'v1', ...data })) };
+        const sectionsSnapshot = [{ id: 'sec-1', type: 'hero' }];
+        const nodesSnapshot = [{ id: 'node-1', type: 'frame' }];
+        const service = new PageService(fakePageRepo as any, undefined as any, fakePageVersionRepo as any);
+
+        await service.publish('page-1', sectionsSnapshot, nodesSnapshot, 'account-1', 'v1 label');
+
+        expect(fakePageVersionRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+            pageId: 'page-1',
+            snapshot: expect.objectContaining({ sections: sectionsSnapshot, nodes: nodesSnapshot }),
+            publishedBy: 'account-1',
+            label: 'v1 label',
+        }));
+        const snapshotArg = fakePageVersionRepo.create.mock.calls[0][0].snapshot;
+        expect(Object.keys(snapshotArg).sort()).toEqual(['nodes', 'page', 'sections']);
     });
 });

@@ -81,6 +81,17 @@ export class PageService extends BaseService<PageEntity> {
         // Task 3 (Phase 0 M1): mọi Page mới LUÔN có root Node ngay lúc tạo — không còn trạng thái
         // "Page tồn tại nhưng rootNodeId null" (trước đây root Node chỉ được tạo tay qua Node Builder
         // SAU khi Page đã tồn tại).
+        return this.createRootNodeForPage(page);
+    }
+
+    /** Tạo 1 root Node (frame, rỗng) cho `page` rồi repoint `rootNodeId` — dùng chung bởi mọi
+     * đường tạo Page (`createPage` VÀ `createTranslation`) để giữ đúng bất biến của Task 3: "Page
+     * tồn tại thì LUÔN có root Node", không phân biệt Page được tạo qua đường nào.
+     *
+     * Final whole-branch review Finding 4 (Important): `createTranslation()` gọi `this.create(...)`
+     * trực tiếp (không qua `createPage()`) nên trước fix, 1 Page dịch mới hoàn toàn KHÔNG có root
+     * Node -- phá vỡ đúng bất biến Task 3 vừa thêm, chỉ vì đi qua đường tạo Page thứ 2 này. */
+    private async createRootNodeForPage(page: PageEntity): Promise<PageEntity> {
         const rootNode = await this.nodeService.createNode({
             pageId: page.id,
             parentId: undefined,
@@ -133,6 +144,11 @@ export class PageService extends BaseService<PageEntity> {
             style: source.style,
             seoFieldMapping: source.seoFieldMapping,
             contentTypeId: source.contentTypeId,
+            // Final whole-branch review Finding 4 (Important): thiếu `dataBinding` khiến bản dịch
+            // KHÔNG BAO GIỜ được `findDetailBinding()` suy ra URL riêng cho locale của nó (hàm này
+            // ưu tiên candidate Page có `dataBinding` khớp locale) -- dù bản gốc đã cấu hình trang
+            // Chi tiết đầy đủ. Clone thẳng, giống mọi field page-level khác ở trên.
+            dataBinding: source.dataBinding,
         });
 
         const sourceSections = await this.sectionRepository.findByCondition({ where: { pageId: source.id } });
@@ -153,7 +169,13 @@ export class PageService extends BaseService<PageEntity> {
                 theme: s.theme,
             });
         }
-        return newPage;
+
+        // Final whole-branch review Finding 4 (Important): Task 3 làm `createPage()` LUÔN tạo root
+        // Node ngay lúc tạo Page -- nhưng `createTranslation()` gọi `this.create(...)` trực tiếp
+        // (đường tạo Page THỨ 2, không đi qua `createPage()`), nên trước fix, 1 Page dịch mới
+        // không có root Node nào, phá vỡ đúng bất biến Task 3 vừa thêm. Dùng chung helper với
+        // `createPage()` để không lặp lại y nguyên shape gọi `NodeService.createNode(...)`.
+        return this.createRootNodeForPage(newPage);
     }
 
     async updatePage(id: string, data: DeepPartial<PageEntity>): Promise<PageEntity> {
@@ -179,8 +201,17 @@ export class PageService extends BaseService<PageEntity> {
         return updated;
     }
 
-    /** Publish: cập nhật status + tạo PageVersion snapshot (page + nodes đã resolve sẵn ở resolver). */
-    async publish(id: string, nodesSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
+    /**
+     * Publish: cập nhật status + tạo PageVersion snapshot (page + sections + nodes đã resolve sẵn
+     * ở resolver).
+     *
+     * Final whole-branch review Finding 2 (Important, plan-level): Section vẫn là hệ render SỐNG
+     * trong suốt M1/M2 (gỡ Section là 1 milestone RIÊNG, sau này) — Task 4 đổi snapshot sang chỉ
+     * còn `{page, nodes}` khiến "Khôi phục" âm thầm KHÔNG còn tác dụng gì lên nội dung THẬT đang
+     * hiển thị công khai (Section), phá vỡ triết lý cộng-thêm (additive) dùng xuyên suốt milestone
+     * này. Sửa: snapshot cả 2 -- `sectionsSnapshot` VÀ `nodesSnapshot` -- không thay thế nhau.
+     */
+    async publish(id: string, sectionsSnapshot: any[], nodesSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
         const page = await this.pageRepository.findById(id);
         if (!page) throw new NotFoundException('Không tìm thấy page.');
 
@@ -189,7 +220,7 @@ export class PageService extends BaseService<PageEntity> {
 
         await this.pageVersionRepository.create({
             pageId: id,
-            snapshot: { page: updated, nodes: nodesSnapshot },
+            snapshot: { page: updated, sections: sectionsSnapshot, nodes: nodesSnapshot },
             publishedBy,
             label,
         });
