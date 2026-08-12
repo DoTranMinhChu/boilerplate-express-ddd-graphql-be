@@ -63,7 +63,11 @@ async function main() {
             continue;
         }
 
-        const sections = await sectionRepo.find({ where: { pageId: page.id } });
+        // Re-review Minor: mirror findDetailBinding's pre-Task-2 guard exactly -- it scoped its
+        // Section scan to `enabled: true` (see contentEntryUsage.service.ts's still-live copy of
+        // the same guard). A disabled Section must never make a page start resolving as a detail
+        // page just because the backfill script forgot this filter.
+        const sections = await sectionRepo.find({ where: { pageId: page.id, enabled: true } });
         const detailSection = findDetailSection(sections);
 
         if (!detailSection) {

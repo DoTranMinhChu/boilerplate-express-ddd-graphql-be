@@ -53,17 +53,27 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
 
     /** Khôi phục: tạo lại TOÀN BỘ cây Node theo snapshot (cha trước, con sau — giữ đúng
      * `parentId` nội bộ vì id cũ không được tái sử dụng, phải map id-cũ -> id-mới khi tạo con)
-     * VÀ toàn bộ Section theo snapshot (Section vẫn là hệ render sống song song Node trong giai
-     * đoạn cutover — final whole-branch review Finding 2), rồi xoá cây Node + Section hiện tại
-     * của trang. Tạo trước - xoá sau (như bản Section cũ) để 1 lỗi giữa chừng không làm mất
-     * TRẮNG cả cũ lẫn mới.
+     * VÀ/HOẶC toàn bộ Section theo snapshot (Section vẫn là hệ render sống song song Node trong
+     * giai đoạn cutover — final whole-branch review Finding 2), rồi xoá cây Node và/hoặc Section
+     * hiện tại của trang. Tạo trước - xoá sau (như bản Section cũ) để 1 lỗi giữa chừng không làm
+     * mất TRẮNG cả cũ lẫn mới.
      *
-     * Final whole-branch review Finding 1: MỌI `PageVersion` được tạo TRƯỚC Task 4 có snapshot
-     * dạng `{page, sections}` -- KHÔNG có key `nodes` -- và snapshot hỏng/toàn-orphan cũng cho ra
-     * cùng hình dạng rỗng. Trước fix, restore() với snapshot rỗng vẫn chạy tới vòng lặp xoá cây
-     * Node HIỆN TẠI (đang sống) của trang mà không tạo lại được gì để thay thế -- trang mất
-     * TRẮNG toàn bộ Node, `rootNodeId` treo NULL, không cách nào undo. Chặn ngay từ đầu, KHÔNG
-     * mutate gì, nếu snapshot không có Node nào để khôi phục.
+     * Re-review round 2, Finding A + B: ba hình dạng snapshot cùng tồn tại trong lịch sử --
+     * `{page, sections}` (row cũ trước Task 4, KHÔNG có key `nodes`), `{page, nodes}` (giai đoạn
+     * hẹp giữa Task 4 tự thân, đã đóng, KHÔNG có key `sections`), và `{page, sections, nodes}`
+     * (hình dạng đúng hiện tại). restore() phải xử lý ĐỘC LẬP từng hệ theo việc KEY đó có tồn tại
+     * trong snapshot thô hay không (`'sections' in snapshot` / `'nodes' in snapshot`) -- KHÔNG
+     * theo giá trị falsy/rỗng của nó, vì `[]` là giá trị hợp lệ ("khôi phục về rỗng") còn "không có
+     * key" nghĩa là "snapshot này không hề nói gì về hệ đó, đừng đụng vào":
+     * - Finding B: nếu chặn dựa trên `snapshot.nodes` rỗng/thiếu (bản fix Finding 1 cũ) thì MỌI row
+     *   cũ trước Task 4 (luôn thiếu key `nodes`) throw ngay, không khôi phục được GÌ cả -- kể cả
+     *   Section mà nó vẫn khôi phục tốt trước khi có Task 4. Nay: thiếu key `nodes` => bỏ qua hoàn
+     *   toàn bước Node (không throw, không đụng cây Node/`rootNodeId` hiện tại), CHỈ throw nếu
+     *   CẢ HAI key đều thiếu (snapshot không nói gì về hệ nào cả -- không có gì để khôi phục).
+     * - Finding A: nếu đọc `snapshot?.sections || []` cho row dạng `{page, nodes}` (thiếu key
+     *   `sections`) thì mảng rỗng thu được trông giống "khôi phục về 0 Section" -- vòng xoá-Section
+     *   hiện tại vẫn chạy, xoá sạch Section ĐANG SỐNG của trang mà không tạo gì thay thế. Nay:
+     *   thiếu key `sections` => bỏ qua hoàn toàn bước Section (không đụng Section hiện tại).
      */
     async restore(pageId: string, versionId: string): Promise<PageVersionEntity> {
         const version = await this.findById(versionId);
@@ -72,98 +82,107 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
             throw new NotFoundException('Phiên bản này không thuộc về trang đã chỉ định.');
         }
 
-        const snapshotNodes = (version.snapshot?.nodes || []) as Partial<NodeEntity>[];
-        const snapshotSections = (version.snapshot?.sections || []) as Partial<SectionEntity>[];
+        const hasSectionsKey = version.snapshot != null && 'sections' in version.snapshot;
+        const hasNodesKey = version.snapshot != null && 'nodes' in version.snapshot;
 
-        // Finding 1 fix: fail fast, ZERO mutation -- snapshot không có `nodes` (row cũ trước Task
-        // 4, hoặc dữ liệu hỏng) nghĩa là không có gì để tạo lại, nhưng cây Node HIỆN TẠI của
-        // trang vẫn đang sống -- KHÔNG được đi tiếp tới bước xoá.
-        if (snapshotNodes.length === 0) {
+        // Cả 2 key đều thiếu (hoặc `snapshot` chính nó null/undefined) -- snapshot này không nói
+        // gì về Section HAY Node, KHÔNG có gì để khôi phục ở dạng nào -- dữ liệu hỏng/trống thực
+        // sự. Throw ngay, KHÔNG mutate gì (chưa đọc currentNodes/currentSections nào ở đây).
+        if (!hasSectionsKey && !hasNodesKey) {
             throw new BadRequestException(
-                'Phiên bản này không có dữ liệu Node (được tạo trước khi hệ thống Node-tree ra mắt, hoặc dữ liệu bị hỏng) -- không thể khôi phục qua đường này để tránh xoá mất cây Node hiện tại của trang.',
+                'Phiên bản này không có dữ liệu Section hoặc Node nào để khôi phục (snapshot trống hoặc dữ liệu bị hỏng).',
             );
         }
 
-        const currentNodes = await this.nodeService.findByPage(pageId);
-        const currentSections = await this.sectionService.findByCondition({ where: { pageId: version.pageId } });
+        const snapshotNodes = (hasNodesKey ? version.snapshot!.nodes : []) as Partial<NodeEntity>[];
+        const snapshotSections = (hasSectionsKey ? version.snapshot!.sections : []) as Partial<SectionEntity>[];
 
-        // Fix Important (task reviewer): tạo trước - xoá sau (bắt buộc, xem comment trên) khiến
-        // node CŨ và node MỚI cùng tồn tại tạm thời trong lúc lặp tạo — nếu
-        // currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE, createNode() ở giữa
-        // vòng lặp sẽ throw (assertCountAllowed đếm TẤT CẢ node hiện có của trang), bỏ lại cây cũ
-        // còn nguyên nhưng cây mới đã tạo dở dang. Chặn NGAY TỪ ĐẦU — trước khi tạo bất kỳ node
-        // nào — để restore() luôn hoặc thất bại sạch (không mutate gì) hoặc thành công sạch,
-        // không có trạng thái nửa-tạo dở ở giữa.
-        if (currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE) {
-            throw new BadRequestException(
-                `Không thể khôi phục: số node hiện tại (${currentNodes.length}) cộng số node của phiên bản này (${snapshotNodes.length}) vượt số lượng node tối đa của trang (${MAX_NODES_PER_PAGE}).`,
-            );
-        }
-
-        // Map id CŨ (trong snapshot) -> id MỚI (vừa tạo) để gán đúng parentId cho node con —
-        // id cũ không dùng lại được (createNode luôn sinh id mới qua BaseEntity).
-        const oldIdToNewId = new Map<string, string>();
-        // Sắp cha trước con: node có parentId=null/undefined trước, rồi lặp nhiều lượt tới khi
-        // hết node CHƯA tạo được (đơn giản, đủ nhanh vì mỗi trang tối đa 500 node — MAX_NODES_PER_PAGE).
-        const pending = [...snapshotNodes];
         let rootNodeNewId: string | undefined;
-        while (pending.length) {
-            const idx = pending.findIndex((n) => !n.parentId || oldIdToNewId.has(n.parentId));
-            if (idx === -1) break; // dữ liệu snapshot lỗi (cha không tồn tại trong chính snapshot) — dừng vòng lặp, xử lý ở guard `pending.length` ngay dưới.
-            const [node] = pending.splice(idx, 1);
-            const { id: oldId, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = node as any;
-            const created = await this.nodeService.createNode({
-                ...rest,
-                pageId,
-                parentId: node.parentId ? oldIdToNewId.get(node.parentId) : undefined,
-            });
-            if (oldId) oldIdToNewId.set(oldId, created.id);
-            if (!node.parentId) rootNodeNewId = created.id;
-        }
 
-        // Finding 1 fix: `pending.length > 0` nghĩa là còn node snapshot KHÔNG THỂ gán được (cha
-        // của nó không tồn tại trong chính snapshot -- dữ liệu hỏng/toàn-orphan). Trước fix,
-        // restore() âm thầm bỏ phần orphan này rồi ĐI TIẾP xoá cây Node hiện tại (đang sống, còn
-        // tốt) -- mất dữ liệu không cần thiết. Sửa: dọn sạch các node MỚI vừa tạo dở dang (chưa
-        // đụng gì tới cây CŨ/Section ở bước này) rồi throw -- restore() thất bại sạch, cây hiện
-        // tại của trang giữ nguyên không đổi.
-        if (pending.length > 0) {
-            for (const newId of oldIdToNewId.values()) {
-                // deleteSubtree tolerant với node đã bị xoá qua 1 lượt gọi cascade trước đó (xem
-                // comment deleteIfExists ở node.service.ts) -- gọi cho MỌI id vừa tạo (không chỉ
-                // root) là an toàn và đơn giản, không cần tự dựng lại cấu trúc cây để tìm đúng root.
-                await this.nodeService.deleteSubtree(newId);
+        // ---- Node: chỉ chạy nếu snapshot có key `nodes` (bất kể rỗng hay không) ----
+        if (hasNodesKey) {
+            const currentNodes = await this.nodeService.findByPage(pageId);
+
+            // Fix Important (task reviewer, giữ từ fix cũ): tạo trước - xoá sau (bắt buộc, xem
+            // comment trên) khiến node CŨ và node MỚI cùng tồn tại tạm thời trong lúc lặp tạo —
+            // nếu currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE, createNode() ở
+            // giữa vòng lặp sẽ throw (assertCountAllowed đếm TẤT CẢ node hiện có của trang), bỏ
+            // lại cây cũ còn nguyên nhưng cây mới đã tạo dở dang. Chặn NGAY TỪ ĐẦU — trước khi tạo
+            // bất kỳ node nào — để restore() luôn hoặc thất bại sạch (không mutate gì) hoặc thành
+            // công sạch, không có trạng thái nửa-tạo dở ở giữa.
+            if (currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE) {
+                throw new BadRequestException(
+                    `Không thể khôi phục: số node hiện tại (${currentNodes.length}) cộng số node của phiên bản này (${snapshotNodes.length}) vượt số lượng node tối đa của trang (${MAX_NODES_PER_PAGE}).`,
+                );
             }
-            throw new BadRequestException(
-                'Dữ liệu Node của phiên bản này bị hỏng (có node tham chiếu node cha không tồn tại trong chính phiên bản) -- không thể khôi phục.',
-            );
+
+            // Map id CŨ (trong snapshot) -> id MỚI (vừa tạo) để gán đúng parentId cho node con —
+            // id cũ không dùng lại được (createNode luôn sinh id mới qua BaseEntity).
+            const oldIdToNewId = new Map<string, string>();
+            // Sắp cha trước con: node có parentId=null/undefined trước, rồi lặp nhiều lượt tới khi
+            // hết node CHƯA tạo được (đơn giản, đủ nhanh vì mỗi trang tối đa 500 node — MAX_NODES_PER_PAGE).
+            const pending = [...snapshotNodes];
+            while (pending.length) {
+                const idx = pending.findIndex((n) => !n.parentId || oldIdToNewId.has(n.parentId));
+                if (idx === -1) break; // dữ liệu snapshot lỗi (cha không tồn tại trong chính snapshot) — dừng vòng lặp, xử lý ở guard `pending.length` ngay dưới.
+                const [node] = pending.splice(idx, 1);
+                const { id: oldId, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = node as any;
+                const created = await this.nodeService.createNode({
+                    ...rest,
+                    pageId,
+                    parentId: node.parentId ? oldIdToNewId.get(node.parentId) : undefined,
+                });
+                if (oldId) oldIdToNewId.set(oldId, created.id);
+                if (!node.parentId) rootNodeNewId = created.id;
+            }
+
+            // Finding 1 fix (giữ nguyên): `pending.length > 0` nghĩa là còn node snapshot KHÔNG
+            // THỂ gán được (cha của nó không tồn tại trong chính snapshot -- dữ liệu hỏng/toàn-
+            // orphan). Dọn sạch các node MỚI vừa tạo dở dang (chưa đụng gì tới cây CŨ/Section ở
+            // bước này) rồi throw -- restore() thất bại sạch, mọi thứ khác giữ nguyên không đổi.
+            if (pending.length > 0) {
+                for (const newId of oldIdToNewId.values()) {
+                    // deleteSubtree tolerant với node đã bị xoá qua 1 lượt gọi cascade trước đó
+                    // (xem comment deleteIfExists ở node.service.ts) -- gọi cho MỌI id vừa tạo
+                    // (không chỉ root) là an toàn và đơn giản, không cần tự dựng lại cấu trúc cây
+                    // để tìm đúng root.
+                    await this.nodeService.deleteSubtree(newId);
+                }
+                throw new BadRequestException(
+                    'Dữ liệu Node của phiên bản này bị hỏng (có node tham chiếu node cha không tồn tại trong chính phiên bản) -- không thể khôi phục.',
+                );
+            }
+
+            // Node mới tạo xong toàn vẹn (không còn pending) -- repoint Page.rootNodeId NGAY,
+            // trước khi xoá cây cũ (tránh có khoảng thời gian Page.rootNodeId treo NULL giữa lúc
+            // xoá cây cũ và lúc set lại) — root CŨ vẫn còn tồn tại tại thời điểm này nên không có
+            // xung đột. `snapshot.nodes: []` (hợp lệ, key có mặt nhưng rỗng) không tạo root mới
+            // nào -- `rootNodeNewId` ở lại `undefined` -- set về `null` để không treo tham chiếu
+            // tới root CŨ sắp bị xoá ngay dưới.
+            await this.pageRepository.updateOneByCondition({ where: { id: pageId } }, { rootNodeId: rootNodeNewId ?? null } as any);
+
+            for (const node of currentNodes) {
+                if (!node.parentId) {
+                    // deleteSubtree tự BFS xoá hết con — chỉ cần gọi ở node gốc của cây hiện tại,
+                    // KHÔNG gọi lại cho từng con (đã bị xoá bởi lượt gọi ở node gốc).
+                    await this.nodeService.deleteSubtree(node.id);
+                }
+            }
         }
 
-        // Node mới tạo xong toàn vẹn (không còn pending) -- repoint Page.rootNodeId sang root MỚI
-        // NGAY, trước khi xoá cây cũ (nice-to-have nêu trong review: tránh có khoảng thời gian
-        // Page.rootNodeId treo NULL giữa lúc xoá cây cũ và lúc set lại) — root CŨ vẫn còn tồn tại
-        // tại thời điểm này nên không có xung đột.
-        if (rootNodeNewId) {
-            await this.pageRepository.updateOneByCondition({ where: { id: pageId } }, { rootNodeId: rootNodeNewId });
-        }
+        // ---- Section: chỉ chạy nếu snapshot có key `sections` (bất kể rỗng hay không) ----
+        if (hasSectionsKey) {
+            const currentSections = await this.sectionService.findByCondition({ where: { pageId: version.pageId } });
 
-        // Finding 2 fix: khôi phục lại Section TỪ snapshot -- Section vẫn là hệ render sống song
-        // song Node trong giai đoạn cutover này (xoá Section là 1 milestone RIÊNG, sau này) --
-        // logic dưới đây port lại nguyên từ bản restore() trước Task 4 (tạo mới trước, xoá cũ sau,
-        // cùng nguyên tắc với Node ở trên).
-        for (const section of snapshotSections) {
-            const { id: _id, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = section as any;
-            await this.sectionService.create({ ...rest, pageId: version.pageId });
-        }
-        for (const section of currentSections) {
-            await this.sectionService.deleteById(section.id);
-        }
-
-        for (const node of currentNodes) {
-            if (!node.parentId) {
-                // deleteSubtree tự BFS xoá hết con — chỉ cần gọi ở node gốc của cây hiện tại,
-                // KHÔNG gọi lại cho từng con (đã bị xoá bởi lượt gọi ở node gốc).
-                await this.nodeService.deleteSubtree(node.id);
+            // Finding 2 fix (giữ nguyên): khôi phục lại Section TỪ snapshot -- Section vẫn là hệ
+            // render sống song song Node trong giai đoạn cutover này (xoá Section là 1 milestone
+            // RIÊNG, sau này) -- tạo mới trước, xoá cũ sau, cùng nguyên tắc an toàn với Node ở trên.
+            for (const section of snapshotSections) {
+                const { id: _id, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = section as any;
+                await this.sectionService.create({ ...rest, pageId: version.pageId });
+            }
+            for (const section of currentSections) {
+                await this.sectionService.deleteById(section.id);
             }
         }
 

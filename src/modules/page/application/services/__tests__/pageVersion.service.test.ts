@@ -81,43 +81,85 @@ describe('PageVersionService.restore (Phase 0 M1 Task 4 — snapshot.nodes)', ()
     });
 });
 
-// Final whole-branch review Finding 1 (Critical): mọi PageVersion row tạo TRƯỚC Task 4 có
-// snapshot dạng {page, sections} — KHÔNG có key `nodes` — và snapshot hỏng/toàn-orphan cũng cho
-// ra cùng hình dạng rỗng (`snapshot?.nodes || []` => []). Trước fix, restore() với snapshot rỗng
-// vẫn đi tới vòng lặp xoá cây Node HIỆN TẠI (đang sống) của trang mà không tạo lại được gì để
-// thay thế -- mất TRẮNG toàn bộ Node, rootNodeId treo NULL, không thể undo.
-describe('PageVersionService.restore — Finding 1 (Critical): snapshot rỗng/thiếu key nodes -- fail fast, ZERO mutation', () => {
-    it('snapshot.nodes = [] (row cũ trước Task 4 hoặc dữ liệu hỏng) -> throw, KHÔNG gọi createNode/deleteSubtree/Section nào', async () => {
+// Re-review round 2, Finding A + B: restore() phải xử lý ĐỘC LẬP Section và Node dựa trên việc
+// KEY đó có mặt trong `version.snapshot` thô hay không (`'sections' in snapshot` / `'nodes' in
+// snapshot`) -- KHÔNG dựa trên giá trị falsy/rỗng của nó. Thiếu 1 key nghĩa là "snapshot này
+// không nói gì về hệ đó" -- bỏ qua hoàn toàn hệ đó, KHÔNG throw và KHÔNG đụng dữ liệu sống của hệ
+// đó. Chỉ throw khi CẢ HAI key đều thiếu (không có gì để khôi phục ở dạng nào cả).
+describe('PageVersionService.restore — re-review round 2 (Finding A + B): thiếu 1 key -> bỏ qua ĐÚNG hệ đó, không throw, không đụng hệ còn lại', () => {
+    it('old-format {page, sections} (KHÔNG có key `nodes`, row THẬT tạo trước Task 4) -> khôi phục Section, Node hoàn toàn KHÔNG bị đụng', async () => {
         const { service, pageVersionRepository, nodeService, sectionService, pageRepository } = makeService();
         pageVersionRepository.findById.mockResolvedValue({
             id: 'v1',
             pageId: 'page-1',
-            snapshot: { page: { id: 'page-1' }, sections: [{ id: 'sec-old', pageId: 'page-1', type: 'hero' }], nodes: [] },
+            snapshot: { page: { id: 'page-1' }, sections: [{ id: 'sec-old', pageId: 'page-1', type: 'hero', order: 0, enabled: true }] },
+        });
+        sectionService.findByCondition.mockResolvedValueOnce([{ id: 'current-sec-1' }]);
+
+        await service.restore('page-1', 'v1');
+
+        // Section ĐƯỢC khôi phục: tạo lại từ snapshot, xoá Section hiện tại.
+        expect(sectionService.create).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-1', type: 'hero', order: 0, enabled: true }));
+        expect(sectionService.deleteById).toHaveBeenCalledWith('current-sec-1');
+        // Node hoàn toàn KHÔNG bị đụng -- snapshot này không hề nói gì về Node.
+        expect(nodeService.findByPage).not.toHaveBeenCalled();
+        expect(nodeService.createNode).not.toHaveBeenCalled();
+        expect(nodeService.deleteSubtree).not.toHaveBeenCalled();
+        expect(pageRepository.updateOneByCondition).not.toHaveBeenCalled();
+    });
+
+    it('task-4-era-format {page, nodes} (KHÔNG có key `sections`) -> khôi phục Node, Section hoàn toàn KHÔNG bị đụng', async () => {
+        const { service, pageVersionRepository, nodeService, sectionService, pageRepository } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: {
+                page: { id: 'page-1' },
+                nodes: [{ id: 'root-old', pageId: 'page-1', parentId: null, order: 0, type: 'frame' }],
+            },
         });
         nodeService.findByPage.mockResolvedValueOnce([{ id: 'current-node-1', parentId: null }]);
 
-        await expect(service.restore('page-1', 'v1')).rejects.toThrow(/không có dữ liệu Node/);
+        await service.restore('page-1', 'v1');
 
+        // Node ĐƯỢC khôi phục: tạo lại từ snapshot, xoá cây Node hiện tại, repoint rootNodeId.
+        expect(nodeService.createNode).toHaveBeenCalledTimes(1);
+        expect(nodeService.deleteSubtree).toHaveBeenCalledWith('current-node-1');
+        expect(pageRepository.updateOneByCondition).toHaveBeenCalledWith({ where: { id: 'page-1' } }, { rootNodeId: 'new-0' });
+        // Section hoàn toàn KHÔNG bị đụng -- snapshot này không hề nói gì về Section.
+        expect(sectionService.findByCondition).not.toHaveBeenCalled();
+        expect(sectionService.create).not.toHaveBeenCalled();
+        expect(sectionService.deleteById).not.toHaveBeenCalled();
+    });
+
+    it('snapshot rỗng {} (cả 2 key đều thiếu) -> throw, ZERO mutation trên cả 2 hệ', async () => {
+        const { service, pageVersionRepository, nodeService, sectionService, pageRepository } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({ id: 'v1', pageId: 'page-1', snapshot: {} });
+
+        await expect(service.restore('page-1', 'v1')).rejects.toThrow(/không có dữ liệu Section hoặc Node/);
+
+        expect(nodeService.findByPage).not.toHaveBeenCalled();
         expect(nodeService.createNode).not.toHaveBeenCalled();
         expect(nodeService.deleteSubtree).not.toHaveBeenCalled();
+        expect(sectionService.findByCondition).not.toHaveBeenCalled();
         expect(sectionService.create).not.toHaveBeenCalled();
         expect(sectionService.deleteById).not.toHaveBeenCalled();
         expect(pageRepository.updateOneByCondition).not.toHaveBeenCalled();
     });
 
-    it('snapshot KHÔNG có key `nodes` (row THẬT tạo trước Task 4, chỉ có {page, sections}) -> throw, ZERO mutation', async () => {
-        const { service, pageVersionRepository, nodeService } = makeService();
-        pageVersionRepository.findById.mockResolvedValue({
-            id: 'v1',
-            pageId: 'page-1',
-            snapshot: { page: { id: 'page-1' }, sections: [{ id: 'sec-old', pageId: 'page-1', type: 'hero' }] },
-        });
-        nodeService.findByPage.mockResolvedValueOnce([{ id: 'current-node-1', parentId: null }]);
+    it('snapshot = null (dữ liệu hỏng thực sự) -> throw, ZERO mutation trên cả 2 hệ', async () => {
+        const { service, pageVersionRepository, nodeService, sectionService, pageRepository } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({ id: 'v1', pageId: 'page-1', snapshot: null });
 
-        await expect(service.restore('page-1', 'v1')).rejects.toThrow(/không có dữ liệu Node/);
+        await expect(service.restore('page-1', 'v1')).rejects.toThrow(/không có dữ liệu Section hoặc Node/);
 
+        expect(nodeService.findByPage).not.toHaveBeenCalled();
         expect(nodeService.createNode).not.toHaveBeenCalled();
         expect(nodeService.deleteSubtree).not.toHaveBeenCalled();
+        expect(sectionService.findByCondition).not.toHaveBeenCalled();
+        expect(sectionService.create).not.toHaveBeenCalled();
+        expect(sectionService.deleteById).not.toHaveBeenCalled();
+        expect(pageRepository.updateOneByCondition).not.toHaveBeenCalled();
     });
 });
 
@@ -200,5 +242,27 @@ describe('PageVersionService.restore — Finding 2 (Important): khôi phục C�
         expect(sectionService.deleteById).toHaveBeenCalledWith('current-sec-1');
         expect(nodeService.createNode).toHaveBeenCalledTimes(1);
         expect(nodeService.deleteSubtree).toHaveBeenCalledWith('current-node-1');
+    });
+
+    // Re-review round 2: `'sections' in snapshot` / `'nodes' in snapshot` khác `snapshot.sections`/
+    // `snapshot.nodes` truthiness CHỈ khi giá trị là mảng rỗng -- case này đúng chỗ khác nhau đó,
+    // dual-format tests phía trên (với mảng CÓ phần tử) không chạm tới được.
+    it('snapshot có CẢ 2 key nhưng cả 2 đều là mảng rỗng ({page, sections: [], nodes: []}) -> khôi phục về rỗng cho CẢ 2 hệ (xoá hết, tạo lại 0), rootNodeId về null, KHÔNG throw', async () => {
+        const { service, pageVersionRepository, nodeService, sectionService, pageRepository } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: { page: { id: 'page-1' }, sections: [], nodes: [] },
+        });
+        nodeService.findByPage.mockResolvedValueOnce([{ id: 'current-node-1', parentId: null }]);
+        sectionService.findByCondition.mockResolvedValueOnce([{ id: 'current-sec-1' }]);
+
+        await service.restore('page-1', 'v1');
+
+        expect(nodeService.createNode).not.toHaveBeenCalled();
+        expect(nodeService.deleteSubtree).toHaveBeenCalledWith('current-node-1');
+        expect(pageRepository.updateOneByCondition).toHaveBeenCalledWith({ where: { id: 'page-1' } }, { rootNodeId: null });
+        expect(sectionService.create).not.toHaveBeenCalled();
+        expect(sectionService.deleteById).toHaveBeenCalledWith('current-sec-1');
     });
 });
