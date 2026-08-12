@@ -48,4 +48,27 @@ describe('PageVersionService.restore (Phase 0 M1 Task 4 — snapshot.nodes)', ()
         pageVersionRepository.findById.mockResolvedValue({ id: 'v1', pageId: 'page-OTHER', snapshot: { nodes: [] } });
         await expect(service.restore('page-1', 'v1')).rejects.toThrow();
     });
+
+    it('fail-fast KHÔNG tạo node nào nếu currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE (500)', async () => {
+        const { service, pageVersionRepository, nodeService } = makeService();
+        const currentNodes = Array.from({ length: 300 }, (_, i) => ({ id: `current-${i}` }));
+        const snapshotNodes = Array.from({ length: 201 }, (_, i) => ({
+            id: `snap-${i}`,
+            pageId: 'page-1',
+            parentId: i === 0 ? null : `snap-${i - 1}`,
+            order: 0,
+            type: 'frame',
+        })); // 300 + 201 = 501 > 500
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: { page: { id: 'page-1' }, nodes: snapshotNodes },
+        });
+        nodeService.findByPage.mockResolvedValueOnce(currentNodes);
+
+        await expect(service.restore('page-1', 'v1')).rejects.toThrow();
+
+        expect(nodeService.createNode).not.toHaveBeenCalled();
+        expect(nodeService.deleteSubtree).not.toHaveBeenCalled();
+    });
 });

@@ -1,10 +1,10 @@
 import { PageVersionEntity } from '../../domain/entities/pageVersion.entity';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
-import { NodeService } from '@/modules/node/application/services/node.service';
+import { NodeService, MAX_NODES_PER_PAGE } from '@/modules/node/application/services/node.service';
 import { NodeEntity } from '@/modules/node/domain/entities/node.entity';
 import { PageRepository } from '../../infrastructure/persistence/page.repository';
 import { BaseService } from '@/core/application/services/base.service';
-import { NotFoundException } from '@/core/domain/exceptions/appException';
+import { NotFoundException, BadRequestException } from '@/core/domain/exceptions/appException';
 
 export class PageVersionService extends BaseService<PageVersionEntity> {
     constructor(
@@ -57,6 +57,19 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
 
         const snapshotNodes = (version.snapshot?.nodes || []) as Partial<NodeEntity>[];
         const currentNodes = await this.nodeService.findByPage(pageId);
+
+        // Fix Important (task reviewer): tạo trước - xoá sau (bắt buộc, xem comment trên) khiến
+        // node CŨ và node MỚI cùng tồn tại tạm thời trong lúc lặp tạo — nếu
+        // currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE, createNode() ở giữa
+        // vòng lặp sẽ throw (assertCountAllowed đếm TẤT CẢ node hiện có của trang), bỏ lại cây cũ
+        // còn nguyên nhưng cây mới đã tạo dở dang. Chặn NGAY TỪ ĐẦU — trước khi tạo bất kỳ node
+        // nào — để restore() luôn hoặc thất bại sạch (không mutate gì) hoặc thành công sạch,
+        // không có trạng thái nửa-tạo dở ở giữa.
+        if (currentNodes.length + snapshotNodes.length > MAX_NODES_PER_PAGE) {
+            throw new BadRequestException(
+                `Không thể khôi phục: số node hiện tại (${currentNodes.length}) cộng số node của phiên bản này (${snapshotNodes.length}) vượt số lượng node tối đa của trang (${MAX_NODES_PER_PAGE}).`,
+            );
+        }
 
         // Map id CŨ (trong snapshot) -> id MỚI (vừa tạo) để gán đúng parentId cho node con —
         // id cũ không dùng lại được (createNode luôn sinh id mới qua BaseEntity).
