@@ -110,6 +110,14 @@ function buildGridRepeatConfig(section: SectionEntity, source: 'own' | 'related'
     headingText?: string;
 } {
     const content = (section.content || {}) as { heading?: string };
+    // Review round 1 Minor: đã xác nhận thật có Section (content-grid) lưu fieldMapping dạng
+    // JSON-string-2-lần (double-encoded) thay vì object — jsonb column lúc đó decode ra 1 string
+    // scalar, không throw nhưng mapping.heading/.image/.description đều undefined, card không có
+    // Image/Text con nào (khác hệ legacy:* cũ giữ nguyên raw string trong props, ít nhất còn thấy
+    // được). Không tự sửa dữ liệu hỏng — chỉ cảnh báo để không âm thầm bỏ sót.
+    if (typeof section.fieldMapping === 'string') {
+        console.warn(`[migrate] Section ${section.id} (page ${section.pageId}) has fieldMapping stored as a JSON string, not an object — grid card will have no bound fields. Data quality issue predates this script; fix the row directly if this content-grid/related-entries/mixed-feed/backlink-entries block needs to render real content.`);
+    }
     const mapping = (section.fieldMapping || {}) as { heading?: string; image?: string; description?: string };
     const ds = (section.dataSource || {}) as {
         mode?: string; ids?: string[]; query?: { contentTypeId?: string; limit?: number; sort?: { field: string; direction: 'ASC' | 'DESC' } };
