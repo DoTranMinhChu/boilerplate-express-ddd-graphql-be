@@ -277,18 +277,12 @@ export class PageService extends BaseService<PageEntity> {
         const publishedPages = await this.pageRepository.findByCondition({ where: { status: EPageStatus.PUBLISHED } });
         if (!publishedPages.length) return null;
 
-        const sections = await this.sectionRepository.findByCondition({
-            where: { pageId: In(publishedPages.map((p) => p.id)), enabled: true },
-        });
-
-        const pageById = new Map(publishedPages.map((p) => [p.id, p]));
-        const candidates = sections
-            .map((s) => {
-                const page = pageById.get(s.pageId);
-                const ds = (s.dataSource as { mode?: string; query?: { contentTypeId?: string }; genericFilters?: { field?: string; valueSource?: string; paramName?: string }[] } | undefined);
-                if (!page || s.type !== 'content-detail' || ds?.mode !== 'detail' || ds.query?.contentTypeId !== contentTypeId) return null;
-                const filters = ds.genericFilters || [];
-                // Mở rộng (Phase 3 mục 2): MỌI filter (không chỉ đúng 1) đều PHẢI là pathParam có đủ field+paramName.
+        const candidates = publishedPages
+            .map((page) => {
+                const db = page.dataBinding as { mode?: string; contentTypeId?: string; genericFilters?: { field?: string; valueSource?: string; paramName?: string }[] } | undefined;
+                if (!db || db.mode !== 'detail' || db.contentTypeId !== contentTypeId) return null;
+                const filters = db.genericFilters || [];
+                // Giữ NGUYÊN guard cũ (Phase 3 mục 2): MỌI filter phải là pathParam có đủ field+paramName.
                 if (!filters.length || !filters.every((f) => f.valueSource === 'pathParam' && f.field && f.paramName)) return null;
                 const bindings = filters.map((f) => ({ paramName: f.paramName!, fieldKey: f.field! }));
                 return { page, bindings };

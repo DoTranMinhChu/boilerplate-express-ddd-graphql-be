@@ -2,147 +2,65 @@ import 'reflect-metadata';
 import { PageService } from '../page.service';
 import { PageEntity } from '../../../domain/entities/page.entity';
 
-function makePage(overrides: Partial<any> = {}) {
-    return { id: 'page-1', path: '/tin-tuc/:slug', status: 'PUBLISHED', createdAt: new Date('2026-01-01'), ...overrides };
+function makeService(repoOverrides: Partial<Record<string, any>> = {}) {
+    const pageRepository = {
+        findByCondition: jest.fn(async () => []),
+        findOneByCondition: jest.fn(async () => null),
+        ...repoOverrides,
+    };
+    const redirectService = { recordPathChange: jest.fn(async () => undefined) };
+    const pageVersionRepository = { create: jest.fn() };
+    const sectionRepository = { findByCondition: jest.fn(async () => []) };
+    const siteLocaleSettingsService = { getSettings: jest.fn(async () => ({ defaultLocale: 'vi', enabledLocales: ['vi'] })) };
+    const service = new PageService(
+        pageRepository as any,
+        redirectService as any,
+        pageVersionRepository as any,
+        sectionRepository as any,
+        siteLocaleSettingsService as any,
+    );
+    return { service, pageRepository, sectionRepository };
 }
-function makeSection(pageId: string, dataSource: any, overrides: Partial<any> = {}) {
-    return { id: 'sec-1', pageId, type: 'content-detail', enabled: true, dataSource, ...overrides };
-}
 
-describe('PageService.findDetailBinding', () => {
-    it('suy đúng path khi block có ĐÚNG 1 điều kiện field=pathParam', async () => {
-        const page = makePage();
-        const section = makeSection(page.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }] });
-        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-        const result = await service.findDetailBinding('ct-1');
-        expect(result).toEqual({ path: '/tin-tuc/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
-    });
-
-    it('findDetailBinding trả về NHIỀU binding khi block có ≥2 filter dạng field=pathParam', async () => {
-        const page = makePage({ path: '/danh-muc/:tenDanhMuc/:slug' });
-        const section = makeSection(page.id, {
-            mode: 'detail', query: { contentTypeId: 'ct-1' },
-            genericFilters: [
-                { field: 'danhMuc', valueSource: 'pathParam', paramName: 'tenDanhMuc' },
-                { field: 'slug', valueSource: 'pathParam', paramName: 'slug' },
-            ],
+describe('PageService.findDetailBinding (Phase 0 M1 — đọc Page.dataBinding)', () => {
+    it('trả về path + bindings từ Page có dataBinding.mode=detail khớp contentTypeId, KHÔNG đụng SectionRepository', async () => {
+        const { service, sectionRepository } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-1',
+                    path: '/blog/:slug',
+                    locale: 'vi',
+                    createdAt: new Date('2026-01-01'),
+                    dataBinding: {
+                        mode: 'detail',
+                        contentTypeId: 'ct-bai-viet',
+                        genericFilters: [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }],
+                    },
+                },
+            ]),
         });
-        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-        const result = await service.findDetailBinding('ct-1');
-        expect(result?.bindings).toEqual([
-            { paramName: 'tenDanhMuc', fieldKey: 'danhMuc' },
-            { paramName: 'slug', fieldKey: 'slug' },
-        ]);
+
+        const result = await service.findDetailBinding('ct-bai-viet', 'vi');
+
+        expect(result).toEqual({ path: '/blog/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
+        expect(sectionRepository.findByCondition).not.toHaveBeenCalled();
     });
 
-    it('findDetailBinding trả null khi 1 trong N filter KHÔNG phải pathParam (vd có filter static trộn lẫn)', async () => {
-        const page = makePage({ path: '/danh-muc/:tenDanhMuc/:slug' });
-        const section = makeSection(page.id, {
-            mode: 'detail', query: { contentTypeId: 'ct-1' },
-            genericFilters: [
-                { field: 'danhMuc', valueSource: 'pathParam', paramName: 'tenDanhMuc' },
-                { field: 'kichHoat', valueSource: 'static', staticValue: true },
-            ],
+    it('bỏ qua Page có filter không phải pathParam (giữ đúng guard cũ)', async () => {
+        const { service } = makeService({
+            findByCondition: jest.fn(async () => [
+                {
+                    id: 'page-1', path: '/blog/:slug', locale: 'vi', createdAt: new Date(),
+                    dataBinding: { mode: 'detail', contentTypeId: 'ct-bai-viet', genericFilters: [{ field: 'slug', valueSource: 'static', staticValue: 'x' }] },
+                },
+            ]),
         });
-        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-        const result = await service.findDetailBinding('ct-1');
-        expect(result).toBeNull();
+        expect(await service.findDetailBinding('ct-bai-viet', 'vi')).toBeNull();
     });
 
-    it('trả null khi block có NHIỀU điều kiện lọc (không suy ngược được, không throw)', async () => {
-        const page = makePage();
-        const section = makeSection(page.id, {
-            mode: 'detail', query: { contentTypeId: 'ct-1' },
-            genericFilters: [
-                { field: 'slug', valueSource: 'pathParam', paramName: 'slug' },
-                { field: 'active', valueSource: 'static', staticValue: 'true' },
-            ],
-        });
-        const fakePageRepo = { findByCondition: jest.fn(async () => [page]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => [section]) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-        const result = await service.findDetailBinding('ct-1');
-        expect(result).toBeNull();
-    });
-
-    it('nhiều trang cùng khớp -> lấy trang createdAt SỚM NHẤT', async () => {
-        const older = makePage({ id: 'page-old', path: '/cu/:slug', createdAt: new Date('2026-01-01') });
-        const newer = makePage({ id: 'page-new', path: '/moi/:slug', createdAt: new Date('2026-06-01') });
-        const filters = [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }];
-        const sections = [
-            makeSection(newer.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-new' }),
-            makeSection(older.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-old' }),
-        ];
-        const fakePageRepo = { findByCondition: jest.fn(async () => [older, newer]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => sections) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-        const result = await service.findDetailBinding('ct-1');
-        expect(result?.path).toBe('/cu/:slug');
-    });
-
-    it('trả null khi không có section nào khớp contentTypeId', async () => {
-        const fakePageRepo = { findByCondition: jest.fn(async () => []) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => []) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-        const result = await service.findDetailBinding('ct-nonexistent');
-        expect(result).toBeNull();
-    });
-
-    // Critical #1 fix (Task 16 review, mục B đọc NGƯỢC): content type có NHIỀU Page candidate (1
-    // mỗi locale, do createTranslation clone nguyên Section) — trước fix luôn lấy candidate cũ
-    // nhất bất kể locale, có thể chọn nhầm URL/locale khi content type đã có Page dịch ở ≥2 locale.
-    it('có candidate khớp `locale` truyền vào -> ƯU TIÊN candidate đó, không phải candidate cũ nhất', async () => {
-        const viPage = makePage({ id: 'page-vi', path: '/tin-tuc/:slug', locale: 'vi', createdAt: new Date('2026-01-01') });
-        const enPage = makePage({ id: 'page-en', path: '/en/tin-tuc/:slug', locale: 'en', createdAt: new Date('2026-06-01') });
-        const filters = [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }];
-        const sections = [
-            makeSection(viPage.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-vi' }),
-            makeSection(enPage.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-en' }),
-        ];
-        const fakePageRepo = { findByCondition: jest.fn(async () => [viPage, enPage]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => sections) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-
-        const result = await service.findDetailBinding('ct-1', 'en');
-        expect(result?.path).toBe('/en/tin-tuc/:slug');
-    });
-
-    it('KHÔNG có candidate nào khớp `locale` truyền vào -> fallback candidate cũ nhất (không mất URL)', async () => {
-        const older = makePage({ id: 'page-old', path: '/cu/:slug', locale: 'vi', createdAt: new Date('2026-01-01') });
-        const newer = makePage({ id: 'page-new', path: '/moi/:slug', locale: 'vi', createdAt: new Date('2026-06-01') });
-        const filters = [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }];
-        const sections = [
-            makeSection(newer.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-new' }),
-            makeSection(older.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-old' }),
-        ];
-        const fakePageRepo = { findByCondition: jest.fn(async () => [older, newer]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => sections) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-
-        const result = await service.findDetailBinding('ct-1', 'en');
-        expect(result?.path).toBe('/cu/:slug');
-    });
-
-    it('không truyền `locale` -> giữ hành vi cũ (candidate cũ nhất, bất kể locale)', async () => {
-        const older = makePage({ id: 'page-old', path: '/cu/:slug', locale: 'en', createdAt: new Date('2026-01-01') });
-        const newer = makePage({ id: 'page-new', path: '/moi/:slug', locale: 'vi', createdAt: new Date('2026-06-01') });
-        const filters = [{ field: 'slug', valueSource: 'pathParam', paramName: 'slug' }];
-        const sections = [
-            makeSection(newer.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-new' }),
-            makeSection(older.id, { mode: 'detail', query: { contentTypeId: 'ct-1' }, genericFilters: filters }, { id: 'sec-old' }),
-        ];
-        const fakePageRepo = { findByCondition: jest.fn(async () => [older, newer]) };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => sections) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any);
-
-        const result = await service.findDetailBinding('ct-1');
-        expect(result?.path).toBe('/cu/:slug');
+    it('không có Page nào khớp contentTypeId -> null', async () => {
+        const { service } = makeService({ findByCondition: jest.fn(async () => []) });
+        expect(await service.findDetailBinding('ct-khong-ton-tai')).toBeNull();
     });
 });
 
