@@ -398,4 +398,43 @@ describe('ContentEntryUsageService — nhánh Node (Phase 0 M1 Task 6)', () => {
             limit: 1,
         }));
     });
+
+    // Final whole-branch review Finding 5 (Important): trước fix, nhánh Node hoàn toàn KHÔNG có
+    // case cho `repeat.source === 'mixed'` -- 1 Node lặp qua NHIỀU content type (tương đương
+    // mixed-feed của Section) sẽ không được nhánh 'own'/'related'/'backlink' nào bắt được, âm
+    // thầm biến mất khỏi kết quả tra cứu dù entry thực sự đang hiển thị công khai qua Node đó.
+    it('matchKind "dynamic-confirmed" khi Node repeat.source=mixed có 1 source khớp contentTypeId, entry nằm trong kết quả findPublicList (Fix Finding 5)', async () => {
+        const { service, pageRepository, nodeRepository, contentEntryRepository } = makeNodeBranchService();
+        pageRepository.findByCondition.mockResolvedValue([
+            { id: 'page-4', internalName: 'Trang chủ Node', path: '/', dataBinding: null },
+        ]);
+        nodeRepository.findByCondition.mockResolvedValue([
+            {
+                id: 'node-3', pageId: 'page-4', type: 'frame',
+                repeat: { source: 'mixed', sources: [{ contentTypeId: 'ct-other', limit: 5 }, { contentTypeId: 'ct-1', limit: 5 }] },
+            },
+        ]);
+        (contentEntryRepository.findPublicList as jest.Mock).mockImplementation(async (args: any) => {
+            if (!args.filters?.length && args.limit === 1) return [{ id: 'entry-1' }]; // lượt "hiển thị công khai thật" chung đầu hàm
+            return args.limit === 5 ? [{ id: 'entry-1' }] : [];
+        });
+
+        const results = await service.findUsageLocations('entry-1');
+
+        expect(results).toContainEqual(expect.objectContaining({ pageId: 'page-4', nodeId: 'node-3', matchKind: 'dynamic-confirmed' }));
+    });
+
+    it('Node repeat.source=mixed nhưng KHÔNG source nào khớp contentTypeId của entry -> không xuất hiện', async () => {
+        const { service, pageRepository, nodeRepository } = makeNodeBranchService();
+        pageRepository.findByCondition.mockResolvedValue([
+            { id: 'page-5', internalName: 'Trang chủ Node', path: '/', dataBinding: null },
+        ]);
+        nodeRepository.findByCondition.mockResolvedValue([
+            { id: 'node-4', pageId: 'page-5', type: 'frame', repeat: { source: 'mixed', sources: [{ contentTypeId: 'ct-other', limit: 5 }] } },
+        ]);
+
+        const results = await service.findUsageLocations('entry-1');
+
+        expect(results.find((r) => r.nodeId === 'node-4')).toBeUndefined();
+    });
 });

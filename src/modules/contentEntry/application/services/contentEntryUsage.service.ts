@@ -215,11 +215,16 @@ export class ContentEntryUsageService {
 
         // === NHÁNH MỚI (Phase 0 M1 Task 6): quét Node/Page.dataBinding, CẠNH nhánh Section
         // trên — KHÔNG thay thế, không đụng gì ở vòng lặp Section. Node/page_node là hệ cây
-        // node mới (xem docs/superpowers/specs/2026-08-12-nocode-visual-builder-v2-design.md
+        // node mới (xem docs/superpowers/specs/2026-08-12-phase0-node-tree-cutover-design.md
         // §2) chạy song song Section trong giai đoạn cutover. Tái dùng nguyên `entry`,
         // `publishedPages`, `pageById`, `visibilityExclusions`, `isPubliclyVisible` đã tính
         // ở trên — KHÔNG tính lại (đúng 1 lượt findPublicList cho "hiển thị công khai thật",
         // giống nguyên tắc đã áp cho nhánh Section).
+
+        // Final whole-branch review — Minor "N+1 trong nhánh detail": `findDetailBinding` chỉ phụ
+        // thuộc `entry.contentTypeId`/`entry.locale` (bất biến suốt vòng lặp `publishedPages` bên
+        // dưới) — gọi 1 LẦN ở đây, tái dùng cho mọi page thay vì gọi lại bên trong vòng lặp.
+        const detailBinding = await this.pageService.findDetailBinding(entry.contentTypeId, entry.locale);
 
         // detail/detail-not-visible qua Page.dataBinding — trang KHÔNG cần join Node, giống
         // cách section 'content-detail' suy URL ở trên (cùng công thức findDetailBinding +
@@ -227,7 +232,7 @@ export class ContentEntryUsageService {
         for (const page of publishedPages) {
             const db = page.dataBinding as { mode?: string; contentTypeId?: string } | undefined;
             if (!db || db.mode !== 'detail' || db.contentTypeId !== entry.contentTypeId) continue;
-            const binding = await this.pageService.findDetailBinding(entry.contentTypeId, entry.locale);
+            const binding = detailBinding;
             const fieldValues = binding
                 ? binding.bindings.map((b) => ({ ...b, value: readEntryFieldValue(entry, b.fieldKey, (k) => this.contentEntryRepository.hasColumn(k)) }))
                 : [];
@@ -263,6 +268,10 @@ export class ContentEntryUsageService {
                 sort?: { field: string; direction?: 'ASC' | 'DESC' };
                 limit?: number;
                 sourceContentTypeId?: string;
+                // Final whole-branch review Finding 5 (Important): `repeat.source === 'mixed'` —
+                // tương đương `mixed-feed` của nhánh Section (`ds.sources`), MỘT Node lặp qua NHIỀU
+                // content type cùng lúc, mỗi nguồn có `contentTypeId` + `limit` riêng.
+                sources?: { contentTypeId?: string; limit?: number }[];
             } | undefined;
             if (!page || !repeat) continue;
 
@@ -313,6 +322,35 @@ export class ContentEntryUsageService {
                         nodeType: node.type,
                         matchKind: 'dynamic-possible',
                     });
+                }
+                continue;
+            }
+
+            // Final whole-branch review Finding 5 (Important): `repeat.source === 'mixed'` —
+            // tương đương hệt nhánh `mixed-feed` của Section phía trên (1 Node lặp qua NHIỀU
+            // content type, mỗi nguồn tự khai `contentTypeId` + `limit` riêng trong
+            // `repeat.sources`) — nếu thiếu nhánh này, MỌI usage tới từ 1 Node kiểu mixed-feed sẽ
+            // âm thầm KHÔNG được báo cáo bởi công cụ này (không crash, chỉ lặng lẽ thiếu) kể từ khi
+            // nội dung được backfill sang Node (M2).
+            if (repeat.source === 'mixed' && Array.isArray(repeat.sources)) {
+                const matchingSource = repeat.sources.find((s) => s.contentTypeId === entry.contentTypeId);
+                if (matchingSource) {
+                    const resolved = await this.contentEntryRepository.findPublicList({
+                        contentTypeId: entry.contentTypeId,
+                        filters: [],
+                        visibilityExclusions,
+                        limit: matchingSource.limit || repeat.limit || 12,
+                    });
+                    if (resolved.some((e) => e.id === entryId)) {
+                        results.push({
+                            pageId: page.id,
+                            pageLabel: page.internalName,
+                            pagePath: page.path,
+                            nodeId: node.id,
+                            nodeType: node.type,
+                            matchKind: 'dynamic-confirmed',
+                        });
+                    }
                 }
                 continue;
             }
