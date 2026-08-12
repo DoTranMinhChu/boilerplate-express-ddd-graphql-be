@@ -38,6 +38,13 @@ export class UpdatePageInput {
     @Field({ type: SeoInput, nullable: true }) seo?: SeoInput;
     @Field({ type: GraphQLMixed, nullable: true }) style?: Record<string, string>;
     @Field({ type: GraphQLMixed, nullable: true }) seoFieldMapping?: Record<string, string>;
+    // Final review Important #2: Task 8 thêm 2 cột này vào PageEntity nhưng chưa từng lộ ra
+    // UpdatePageInput — không có cách nào (ngoài migration script 1 lần) để wire rootNodeId
+    // cho 1 page tạo MỚI sau khi branch này merge. Chỉ thêm ở UpdatePageInput (không phải
+    // CreatePageInput) — root node luôn được tạo SAU khi page đã tồn tại (cần pageId để tạo
+    // node gốc), nên wiring luôn đi qua updatePage.
+    @Field({ type: String, nullable: true }) rootNodeId?: string;
+    @Field({ type: GraphQLMixed, nullable: true }) dataBinding?: Record<string, any>;
 }
 
 @InputType('ScheduleePageInput')

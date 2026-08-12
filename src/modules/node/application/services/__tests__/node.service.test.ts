@@ -3,8 +3,12 @@ import { NodeService } from '../node.service';
 import { ConflictException, BadRequestException, NotFoundException } from '@/core/domain/exceptions/appException';
 import { eventBus } from '@/core/infrastructure/events/eventBus';
 
-function makeService(nodes: Record<string, { id: string; parentId?: string; pageId?: string }>) {
+function makeService(
+    nodes: Record<string, { id: string; parentId?: string; pageId?: string }>,
+    pages: Record<string, { id: string; rootNodeId?: string }> = {},
+) {
     const all = Object.values(nodes);
+    let nextNewNodeId = 0;
     const fakeRepo = {
         findOneByCondition: jest.fn(async () => null),
         findById: jest.fn(async (id: string) => nodes[id] ?? null),
@@ -30,7 +34,18 @@ function makeService(nodes: Record<string, { id: string; parentId?: string; page
             });
         }),
         countByCondition: jest.fn(async (cond: any) => all.filter((n: any) => n.pageId === cond.pageId).length),
-        create: jest.fn(async (data: any) => ({ id: 'new-node', ...data })),
+        // Ghi created node vào `all`/`nodes` (không chỉ trả về) — khớp hành vi DB thật, nơi
+        // 1 row vừa insert lập tức hiển thị cho các query sau đó trong CÙNG quá trình (vd
+        // cloneNodeRecursive tạo nhiều sibling tuần tự, mỗi sibling sau phải "thấy" sibling
+        // trước để đếm order đúng — cần cho test happy-path duplicateSubtree bên dưới). Mỗi
+        // lần gọi sinh id MỚI (tăng dần) — trước đây hard-code 'new-node' cho MỌI lần gọi,
+        // khiến nhiều clone cùng lúc không thể phân biệt được bằng id.
+        create: jest.fn(async (data: any) => {
+            const created = { id: `new-node-${nextNewNodeId++}`, ...data };
+            all.push(created as any);
+            nodes[created.id] = created as any;
+            return created;
+        }),
         updateOneByCondition: jest.fn(async (options: any, data: any) => {
             const id = options.where.id;
             return { ...(nodes[id] ?? { id }), ...data, id };
@@ -62,7 +77,25 @@ function makeService(nodes: Record<string, { id: string; parentId?: string; page
             },
         })),
     };
-    return { service: new NodeService(fakeRepo as any), fakeRepo };
+    // Fake PageRepository (2nd constructor param) — Final review Important #2:
+    // NodeService.deleteSubtree now cross-reads/writes Page.rootNodeId. findOneByCondition
+    // does a naive AND-match over `where` keys (enough for the `{ where: { id } }` shape used
+    // in node.service.ts); updateOneByCondition mutates the same `pages` fixture object so a
+    // later re-read in the same test sees the null-out.
+    const fakePageRepo = {
+        findOneByCondition: jest.fn(async (opts: any) => {
+            const where = opts?.where ?? {};
+            const found = Object.values(pages).find((p: any) => Object.entries(where).every(([k, v]) => p[k] === v));
+            return found ?? null;
+        }),
+        updateOneByCondition: jest.fn(async (options: any, data: any) => {
+            const id = options.where.id;
+            const updated = { ...(pages[id] ?? { id }), ...data, id };
+            pages[id] = updated;
+            return updated;
+        }),
+    };
+    return { service: new NodeService(fakeRepo as any, fakePageRepo as any), fakeRepo, fakePageRepo };
 }
 
 describe('NodeService — chống vòng lặp cha/con', () => {
@@ -198,5 +231,147 @@ describe('NodeService — nhân bản cây con', () => {
 
         const { service } = makeService(nodes);
         await expect(service.duplicateSubtree('root')).rejects.toThrow(BadRequestException);
+    });
+
+    // Minor (final review): trước đây chỉ có test 500-cap ở trên — chưa test nào xác nhận
+    // clone thật sự đúng field/parentage/ordering.
+    it('duplicateSubtree clone đúng field/parentage/ordering (happy path)', async () => {
+        const nodes: Record<string, any> = {
+            root: { id: 'root', pageId: 'p1', type: 'frame', order: 0, props: { title: 'Root' } },
+            childA: { id: 'childA', pageId: 'p1', parentId: 'root', type: 'text', order: 0, props: { text: 'A' } },
+            childB: { id: 'childB', pageId: 'p1', parentId: 'root', type: 'text', order: 1, props: { text: 'B' } },
+        };
+        const { service } = makeService(nodes);
+
+        const clonedRoot = await service.duplicateSubtree('root');
+
+        // Field: giữ đúng type/props, id là id MỚI (không trùng bản gốc).
+        expect(clonedRoot.id).not.toBe('root');
+        expect(clonedRoot.type).toBe('frame');
+        expect(clonedRoot.props).toEqual({ title: 'Root' });
+        // Parentage: clone của root giữ đúng parentId GỐC của root (undefined — root-level).
+        expect(clonedRoot.parentId).toBeUndefined();
+        // Ordering: root gốc đã chiếm order=0 ở cấp root-level (parentId rỗng) của trang —
+        // clone (sibling thứ 2 ở cấp root) phải nhận order=1, không phải mặc định 0.
+        expect(clonedRoot.order).toBe(1);
+
+        // 2 con của clone PHẢI trỏ parentId về id MỚI của clonedRoot (không phải 'root' gốc),
+        // giữ đúng field và order tương ứng bản gốc (childA order 0 -> clone order 0, childB
+        // order 1 -> clone order 1).
+        const clonedChildren = (Object.values(nodes) as any[]).filter((n) => n.parentId === clonedRoot.id);
+        expect(clonedChildren).toHaveLength(2);
+        const clonedA = clonedChildren.find((n) => n.props?.text === 'A');
+        const clonedB = clonedChildren.find((n) => n.props?.text === 'B');
+        expect(clonedA).toBeTruthy();
+        expect(clonedA.type).toBe('text');
+        expect(clonedA.order).toBe(0);
+        expect(clonedB).toBeTruthy();
+        expect(clonedB.order).toBe(1);
+    });
+});
+
+describe('NodeService — Final review Important #1: assertValidParent (createNode + moveNode)', () => {
+    it('createNode từ chối khi parentId không tồn tại', async () => {
+        const { service } = makeService({});
+        await expect(
+            service.createNode({ pageId: 'p1', parentId: 'ghost-parent', type: 'frame' } as any),
+        ).rejects.toThrow(NotFoundException);
+    });
+
+    it('createNode từ chối khi parentId thuộc trang khác', async () => {
+        const { service } = makeService({ 'other-page-node': { id: 'other-page-node', pageId: 'p2' } });
+        await expect(
+            service.createNode({ pageId: 'p1', parentId: 'other-page-node', type: 'frame' } as any),
+        ).rejects.toThrow(BadRequestException);
+    });
+
+    it('moveNode từ chối khi newParentId không tồn tại (trước fix: orphan node vĩnh viễn vì bị bỏ qua hoàn toàn)', async () => {
+        const { service } = makeService({ 'node-a': { id: 'node-a', pageId: 'p1' } });
+        await expect(service.moveNode('node-a', 'ghost-parent', 0)).rejects.toThrow(NotFoundException);
+    });
+
+    it('moveNode từ chối khi newParentId thuộc trang khác (qua assertValidParent dùng chung)', async () => {
+        const { service } = makeService({
+            'node-a': { id: 'node-a', pageId: 'p1' },
+            'node-b': { id: 'node-b', pageId: 'p2' },
+        });
+        await expect(service.moveNode('node-a', 'node-b', 0)).rejects.toThrow(BadRequestException);
+    });
+
+    it('collectDescendantIds scope theo pageId — không xoá nhầm node trang khác dù nó có parentId trỏ vào cây đang xoá (defense-in-depth)', async () => {
+        const tree = {
+            root: { id: 'root', pageId: 'p1' },
+            child: { id: 'child', pageId: 'p1', parentId: 'root' },
+            // Dữ liệu lỗi giả định (KHÔNG thể tạo qua API mới sau fix assertValidParent —
+            // mô phỏng dữ liệu cũ tồn tại từ trước khi fix này có hiệu lực): node thuộc
+            // trang p2 nhưng parentId lại trỏ vào 'root' (trang p1).
+            'cross-page-node': { id: 'cross-page-node', pageId: 'p2', parentId: 'root' },
+        };
+        const { service, fakeRepo } = makeService(tree);
+
+        await service.deleteSubtree('root');
+
+        expect(fakeRepo.deleteById).toHaveBeenCalledWith('child');
+        expect(fakeRepo.deleteById).toHaveBeenCalledWith('root');
+        expect(fakeRepo.deleteById).not.toHaveBeenCalledWith('cross-page-node');
+    });
+});
+
+describe('NodeService — Final review Important #2: deleteSubtree null hoá page.rootNodeId', () => {
+    it('null hoá page.rootNodeId khi xoá đúng node đang là root của page đó', async () => {
+        const tree = { root: { id: 'root', pageId: 'p1' } };
+        const pages = { p1: { id: 'p1', rootNodeId: 'root' } };
+        const { service, fakePageRepo } = makeService(tree, pages);
+
+        await service.deleteSubtree('root');
+
+        expect(fakePageRepo.updateOneByCondition).toHaveBeenCalledWith({ where: { id: 'p1' } }, { rootNodeId: null });
+        expect(pages.p1.rootNodeId).toBeNull();
+    });
+
+    it('KHÔNG đụng page.rootNodeId khi node bị xoá không phải root của page (an toàn, không nới rộng phạm vi coupling)', async () => {
+        const tree = {
+            root: { id: 'root', pageId: 'p1' },
+            child: { id: 'child', pageId: 'p1', parentId: 'root' },
+        };
+        const pages = { p1: { id: 'p1', rootNodeId: 'root' } };
+        const { service, fakePageRepo } = makeService(tree, pages);
+
+        await service.deleteSubtree('child');
+
+        expect(fakePageRepo.updateOneByCondition).not.toHaveBeenCalled();
+        expect(pages.p1.rootNodeId).toBe('root');
+    });
+});
+
+describe('NodeService — Final review Important #3: depth guard tính cả subtree height', () => {
+    function buildChainToDepth28(): Record<string, { id: string; pageId: string; parentId?: string }> {
+        // n0 (depth 0, không cha) <- n1 <- ... <- n28 (depth 28).
+        const chain: Record<string, { id: string; pageId: string; parentId?: string }> = {};
+        for (let i = 0; i <= 28; i++) {
+            chain[`n${i}`] = { id: `n${i}`, pageId: 'p1', parentId: i > 0 ? `n${i - 1}` : undefined };
+        }
+        return chain;
+    }
+
+    it('cho phép di chuyển 1 node LÁ (không con, height=0) xuống cha ở depth 28 — 28+1+0=29 < 30', async () => {
+        const nodes = {
+            ...buildChainToDepth28(),
+            leaf: { id: 'leaf', pageId: 'p1' },
+        };
+        const { service } = makeService(nodes);
+        const result = await service.moveNode('leaf', 'n28', 0);
+        expect(result).toBeTruthy();
+    });
+
+    it('từ chối di chuyển 1 cây con 3 cấp (height=2) xuống CÙNG cha ở depth 28 — 28+1+2=31 >= 30 — dù 1 node lá cùng cha vẫn được phép', async () => {
+        const nodes = {
+            ...buildChainToDepth28(),
+            'sub-root': { id: 'sub-root', pageId: 'p1' },
+            'sub-child': { id: 'sub-child', pageId: 'p1', parentId: 'sub-root' },
+            'sub-grandchild': { id: 'sub-grandchild', pageId: 'p1', parentId: 'sub-child' },
+        };
+        const { service } = makeService(nodes);
+        await expect(service.moveNode('sub-root', 'n28', 0)).rejects.toThrow(BadRequestException);
     });
 });

@@ -1,6 +1,7 @@
 import { In, IsNull, DeepPartial } from 'typeorm';
 import { NodeEntity } from '../../domain/entities/node.entity';
 import { NodeRepository } from '../../infrastructure/persistence/node.repository';
+import { PageRepository } from '@/modules/page/infrastructure/persistence/page.repository';
 import { BaseService } from '@/core/application/services/base.service';
 import { ConflictException, NotFoundException, BadRequestException } from '@/core/domain/exceptions/appException';
 import { eventBus } from '@/core/infrastructure/events/eventBus';
@@ -10,7 +11,15 @@ const MAX_TREE_DEPTH = 30;
 const MAX_NODES_PER_PAGE = 500;
 
 export class NodeService extends BaseService<NodeEntity> {
-    constructor(private readonly nodeRepository = new NodeRepository()) {
+    constructor(
+        private readonly nodeRepository = new NodeRepository(),
+        // Final review Important #2: chỉ dùng để null hoá page.rootNodeId khi deleteSubtree
+        // xoá đúng node đang là root của page — cross-module reuse trực tiếp PageRepository,
+        // cùng convention MenuItemService/ContentEntryUsageService/SiteLocaleSettingsService
+        // đã dùng (service module khác new trực tiếp repository của module Page thay vì import
+        // PageService, tránh phụ thuộc app-layer chéo module).
+        private readonly pageRepository = new PageRepository(),
+    ) {
         super(nodeRepository, 'Node');
     }
 
@@ -51,11 +60,54 @@ export class NodeService extends BaseService<NodeEntity> {
         }
     }
 
-    private async assertDepthAllowed(candidateParentId: string | undefined): Promise<void> {
+    /** Final review Important #3: `assertDepthAllowed` trước đây chỉ tính depth(parent) — di
+     * chuyển cả 1 cây con N cấp xuống 1 cha gần MAX_TREE_DEPTH có thể đẩy các cháu vượt quá
+     * giới hạn mà không hề bị chặn. `subtreeHeight` (mặc định 0 — đúng cho createNode, node
+     * mới luôn chưa có con) là số cấp CỘNG THÊM bên dưới node đang được kiểm tra (xem
+     * `getSubtreeHeight`), cộng vào depth(parent) + 1 trước khi so với MAX_TREE_DEPTH. */
+    private async assertDepthAllowed(candidateParentId: string | undefined, subtreeHeight = 0): Promise<void> {
         if (!candidateParentId) return;
         const parentDepth = await this.getDepth(candidateParentId);
-        if (parentDepth + 1 >= MAX_TREE_DEPTH) {
+        if (parentDepth + 1 + subtreeHeight >= MAX_TREE_DEPTH) {
             throw new BadRequestException(`Cây node vượt quá độ sâu tối đa (${MAX_TREE_DEPTH} cấp).`);
+        }
+    }
+
+    /** Final review Important #3: BFS xuống từ `rootId`, trả về số CẤP CỘNG THÊM bên dưới
+     * nó (root không có con -> 0; root có 1 con -> 1; con lại có con -> 2; ...). Cùng cách
+     * chặn vòng lặp vô hạn (Set dedupe + cap MAX_TREE_DEPTH + 5) như `collectDescendantIds`
+     * — dữ liệu lỗi (parentId tự trỏ vòng) không được để BFS chạy mãi. */
+    private async getSubtreeHeight(rootId: string): Promise<number> {
+        let height = 0;
+        const seen = new Set<string>([rootId]);
+        let currentLevel = [rootId];
+        for (let i = 0; i < MAX_TREE_DEPTH + 5 && currentLevel.length > 0; i++) {
+            const children = await this.nodeRepository.findByCondition({
+                where: { parentId: In(currentLevel) } as any,
+            });
+            const newIds = children.map((c) => c.id).filter((cid) => !seen.has(cid));
+            if (!newIds.length) break;
+            newIds.forEach((cid) => seen.add(cid));
+            currentLevel = newIds;
+            height++;
+        }
+        return height;
+    }
+
+    /** Final review Important #1: kiểm tra `parentId` hợp lệ TRƯỚC KHI lưu — dùng chung bởi
+     * `createNode` và `moveNode` (trước đó mỗi nơi tự kiểm tra 1 phần khác nhau, và cả 2 đều
+     * bỏ sót case parentId trỏ tới id không tồn tại). `parentId` undefined luôn hợp lệ (node
+     * gốc). Nếu có giá trị: node cha phải TỒN TẠI và phải CÙNG `pageId` — thiếu 1 trong 2 có
+     * thể để lộ 1 node của trang A trỏ cha vào trang B (mất dữ liệu chéo trang khi xoá cây con
+     * ở trang B), hoặc trỏ vào 1 id không tồn tại (orphan vĩnh viễn khi moveNode). */
+    private async assertValidParent(pageId: string, parentId: string | undefined): Promise<void> {
+        if (!parentId) return;
+        const parent = await this.nodeRepository.findById(parentId);
+        if (!parent) {
+            throw new NotFoundException('Không tìm thấy node cha.');
+        }
+        if (parent.pageId !== pageId) {
+            throw new BadRequestException('Không thể gán cha ở trang khác.');
         }
     }
 
@@ -68,6 +120,9 @@ export class NodeService extends BaseService<NodeEntity> {
 
     async createNode(data: DeepPartial<NodeEntity>): Promise<NodeEntity> {
         await this.assertCountAllowed(data.pageId as string);
+        // Final review Important #1: trước đây createNode KHÔNG kiểm tra parentId tồn tại/
+        // cùng page — 1 parentId giả hoặc trỏ sang trang khác được chấp nhận thẳng.
+        await this.assertValidParent(data.pageId as string, data.parentId as string | undefined);
         await this.assertNoCycle(undefined, data.parentId as string | undefined);
         await this.assertDepthAllowed(data.parentId as string | undefined);
 
@@ -119,16 +174,16 @@ export class NodeService extends BaseService<NodeEntity> {
         const current = await this.nodeRepository.findById(id);
         if (!current) throw new NotFoundException('Không tìm thấy node.');
         await this.assertNoCycle(id, newParentId);
-        await this.assertDepthAllowed(newParentId);
-
-        // Fix Minor (Task 5 review): newParentId có thể trỏ tới 1 node ở page khác —
-        // chặn di chuyển node sang trang khác.
-        if (newParentId) {
-            const newParent = await this.nodeRepository.findById(newParentId);
-            if (newParent && newParent.pageId !== current.pageId) {
-                throw new BadRequestException('Không thể chuyển node sang trang khác.');
-            }
-        }
+        // Final review Important #1: thay cho check inline cũ (chỉ chặn cross-page, VÀ bị bỏ
+        // qua hoàn toàn khi newParentId trỏ tới id không tồn tại — reparent vào 1 id giả từng
+        // "thành công", orphan node vĩnh viễn). assertValidParent chặn CẢ 2 case (không tồn
+        // tại / khác page) bằng 1 helper dùng chung với createNode.
+        await this.assertValidParent(current.pageId, newParentId);
+        // Final review Important #3: depth guard phải tính luôn độ cao cây con đang di chuyển
+        // (không chỉ depth(newParentId)) — nếu không, di chuyển cả cây con nhiều cấp xuống 1
+        // cha gần MAX_TREE_DEPTH có thể đẩy các cháu vượt giới hạn mà không bị chặn.
+        const subtreeHeight = await this.getSubtreeHeight(id);
+        await this.assertDepthAllowed(newParentId, subtreeHeight);
 
         return this.updateById(id, { parentId: newParentId, order: newOrder } as DeepPartial<NodeEntity>);
     }
@@ -140,8 +195,12 @@ export class NodeService extends BaseService<NodeEntity> {
     }
 
     /** BFS xuống hết cây con — không có FK cascade ở DB (parentId chỉ @Index,
-     * không @ForeignKey), nên xoá đệ quy phải tự làm ở application layer. */
-    private async collectDescendantIds(rootId: string): Promise<string[]> {
+     * không @ForeignKey), nên xoá đệ quy phải tự làm ở application layer.
+     * Final review Important #1: query giờ scope thêm theo `pageId` (không chỉ `parentId`)
+     * — defense-in-depth phòng trường hợp 1 parentId trỏ chéo sang trang khác lọt qua được
+     * `assertValidParent` (vd dữ liệu cũ trước khi fix này tồn tại) thì BFS này cũng KHÔNG
+     * đi lạc sang node của trang khác khi thu thập id để xoá. */
+    private async collectDescendantIds(rootId: string, pageId: string): Promise<string[]> {
         // Fix Important (Task 5 review): dùng Set để dedupe — dữ liệu lỗi (parentId
         // tự trỏ vòng, vd node A có parentId = A) có thể khiến BFS gặp lại cùng 1 id
         // ở nhiều "level", nếu push thẳng vào array sẽ sinh id trùng lặp trong kết quả.
@@ -151,7 +210,7 @@ export class NodeService extends BaseService<NodeEntity> {
         let currentLevel = [rootId];
         for (let i = 0; i < MAX_TREE_DEPTH + 5 && currentLevel.length > 0; i++) {
             const children = await this.nodeRepository.findByCondition({
-                where: { parentId: In(currentLevel) } as any,
+                where: { pageId, parentId: In(currentLevel) } as any,
             });
             const newIds = children.map((c) => c.id).filter((cid) => !ids.has(cid));
             if (!newIds.length) break;
@@ -175,7 +234,11 @@ export class NodeService extends BaseService<NodeEntity> {
     }
 
     async deleteSubtree(id: string): Promise<void> {
-        const descendantIds = await this.collectDescendantIds(id);
+        const node = await this.nodeRepository.findById(id);
+        // Node không (còn) tồn tại — không có pageId hợp lệ để scope BFS, giữ hành vi cũ
+        // (deleteIfExists tolerant với NotFoundException) bằng cách bỏ qua bước thu thập
+        // descendant thay vì gọi collectDescendantIds với pageId rỗng.
+        const descendantIds = node ? await this.collectDescendantIds(id, node.pageId) : [];
         // Xoá con trước cha (reverse = từ lá lên) — không bắt buộc về mặt DB (không
         // có FK), nhưng tránh mọi client đang đọc giữa lúc xoá thấy node cha đã mất
         // còn con vẫn còn treo.
@@ -183,6 +246,24 @@ export class NodeService extends BaseService<NodeEntity> {
             await this.deleteIfExists(descId);
         }
         await this.deleteIfExists(id);
+
+        // Final review Important #2: node vừa xoá có thể đang là rootNodeId của chính page
+        // nó thuộc về — nếu không null hoá, page sẽ trỏ dangling vào 1 row đã hard-delete.
+        if (node) {
+            await this.clearPageRootNodeIfMatches(node.pageId, id);
+        }
+    }
+
+    /** Final review Important #2: null hoá `page.rootNodeId` khi (và chỉ khi) page đang
+     * trỏ đúng `nodeId` vừa bị xoá — tránh dangling reference sau `deleteSubtree`. Đọc/viết
+     * Page qua PageRepository cross-module trực tiếp (xem comment ở constructor), KHÔNG qua
+     * PageService — giữ đúng phạm vi finding (chỉ 1 lần null-out, không phải refactor coupling
+     * Page/Node rộng hơn). */
+    private async clearPageRootNodeIfMatches(pageId: string, nodeId: string): Promise<void> {
+        const page = await this.pageRepository.findOneByCondition({ where: { id: pageId } as any });
+        if (page && page.rootNodeId === nodeId) {
+            await this.pageRepository.updateOneByCondition({ where: { id: pageId } as any }, { rootNodeId: null } as any);
+        }
     }
 
     async duplicateSubtree(id: string): Promise<NodeEntity> {
@@ -194,7 +275,7 @@ export class NodeService extends BaseService<NodeEntity> {
         // đẩy tổng vượt MAX_NODES_PER_PAGE mà không bị chặn nếu chỉ kiểm tra count hiện tại.
         // Đếm trước số node cây con SẼ tạo ra, cộng với count hiện có, so 1 lần trước khi
         // bắt đầu đệ quy clone.
-        const descendantIds = await this.collectDescendantIds(id);
+        const descendantIds = await this.collectDescendantIds(id, source.pageId);
         const cloneCount = descendantIds.length + 1;
         const currentCount = await this.nodeRepository.countByCondition({ pageId: source.pageId } as any);
         if (currentCount + cloneCount > MAX_NODES_PER_PAGE) {
