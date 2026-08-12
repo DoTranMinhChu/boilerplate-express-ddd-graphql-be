@@ -14,7 +14,12 @@ export class ContentEntryUsageLocationType {
     @Field({ type: String }) pageLabel!: string;
     @Field({ type: String }) pagePath!: string;
     @Field({ type: String, nullable: true }) sectionId?: string;
-    @Field({ type: String }) sectionType!: string;
+    @Field({ type: String, nullable: true }) sectionType?: string;
+    /** Phase 0 M1 Task 6: nhánh Node/Page.dataBinding mới — CẠNH sectionId/sectionType cũ, không
+     * thay thế (kết quả từ Node luôn có nodeId/nodeType, KHÔNG có sectionId/sectionType). `sectionType`
+     * đổi thành nullable ở đây để khớp: 1 kết quả từ Node không có giá trị nào cho field này. */
+    @Field({ type: String, nullable: true }) nodeId?: string;
+    @Field({ type: String, nullable: true }) nodeType?: string;
     /** 'detail' (trang Chi tiết gắn Content Type, entry ĐANG hiển thị công khai) |
      * 'detail-not-visible' (đã gắn trang Chi tiết nhưng entry hiện KHÔNG hiển thị công khai —
      * Nháp hoặc bị 1 Content Visibility Rule ẩn) | 'pinned' (ghim tay theo id, khớp tuyệt đối,

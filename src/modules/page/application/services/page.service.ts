@@ -8,6 +8,7 @@ import { RedirectService } from './redirect.service';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
 import { SectionRepository } from '@/modules/section/infrastructure/persistence/section.repository';
 import { SiteLocaleSettingsService } from '@/modules/siteSettings/application/services/siteLocaleSettings.service';
+import { NodeService } from '@/modules/node/application/services/node.service';
 import { DeepPartial, In, Like } from 'typeorm';
 
 export class PageService extends BaseService<PageEntity> {
@@ -17,6 +18,7 @@ export class PageService extends BaseService<PageEntity> {
         private readonly pageVersionRepository = new PageVersionRepository(),
         private readonly sectionRepository = new SectionRepository(),
         private readonly siteLocaleSettingsService = new SiteLocaleSettingsService(),
+        private readonly nodeService = new NodeService(),
     ) {
         super(pageRepository, 'Page');
     }
@@ -75,7 +77,32 @@ export class PageService extends BaseService<PageEntity> {
         assertValidPagePath(path);
         await this.assertPathNotLocaleShadow(path, data.locale as string | undefined);
         await this.assertPathAvailable(path);
-        return this.create({ ...data, path });
+        const page = await this.create({ ...data, path });
+        // Task 3 (Phase 0 M1): mọi Page mới LUÔN có root Node ngay lúc tạo — không còn trạng thái
+        // "Page tồn tại nhưng rootNodeId null" (trước đây root Node chỉ được tạo tay qua Node Builder
+        // SAU khi Page đã tồn tại).
+        return this.createRootNodeForPage(page);
+    }
+
+    /** Tạo 1 root Node (frame, rỗng) cho `page` rồi repoint `rootNodeId` — dùng chung bởi mọi
+     * đường tạo Page (`createPage` VÀ `createTranslation`) để giữ đúng bất biến của Task 3: "Page
+     * tồn tại thì LUÔN có root Node", không phân biệt Page được tạo qua đường nào.
+     *
+     * Final whole-branch review Finding 4 (Important): `createTranslation()` gọi `this.create(...)`
+     * trực tiếp (không qua `createPage()`) nên trước fix, 1 Page dịch mới hoàn toàn KHÔNG có root
+     * Node -- phá vỡ đúng bất biến Task 3 vừa thêm, chỉ vì đi qua đường tạo Page thứ 2 này. */
+    private async createRootNodeForPage(page: PageEntity): Promise<PageEntity> {
+        const rootNode = await this.nodeService.createNode({
+            pageId: page.id,
+            parentId: undefined,
+            type: 'frame',
+            layoutMode: 'flow',
+            order: 0,
+            style: {},
+            layout: {},
+            props: {},
+        });
+        return this.updateById(page.id, { rootNodeId: rootNode.id } as DeepPartial<PageEntity>);
     }
 
     /**
@@ -117,6 +144,11 @@ export class PageService extends BaseService<PageEntity> {
             style: source.style,
             seoFieldMapping: source.seoFieldMapping,
             contentTypeId: source.contentTypeId,
+            // Final whole-branch review Finding 4 (Important): thiếu `dataBinding` khiến bản dịch
+            // KHÔNG BAO GIỜ được `findDetailBinding()` suy ra URL riêng cho locale của nó (hàm này
+            // ưu tiên candidate Page có `dataBinding` khớp locale) -- dù bản gốc đã cấu hình trang
+            // Chi tiết đầy đủ. Clone thẳng, giống mọi field page-level khác ở trên.
+            dataBinding: source.dataBinding,
         });
 
         const sourceSections = await this.sectionRepository.findByCondition({ where: { pageId: source.id } });
@@ -137,7 +169,13 @@ export class PageService extends BaseService<PageEntity> {
                 theme: s.theme,
             });
         }
-        return newPage;
+
+        // Final whole-branch review Finding 4 (Important): Task 3 làm `createPage()` LUÔN tạo root
+        // Node ngay lúc tạo Page -- nhưng `createTranslation()` gọi `this.create(...)` trực tiếp
+        // (đường tạo Page THỨ 2, không đi qua `createPage()`), nên trước fix, 1 Page dịch mới
+        // không có root Node nào, phá vỡ đúng bất biến Task 3 vừa thêm. Dùng chung helper với
+        // `createPage()` để không lặp lại y nguyên shape gọi `NodeService.createNode(...)`.
+        return this.createRootNodeForPage(newPage);
     }
 
     async updatePage(id: string, data: DeepPartial<PageEntity>): Promise<PageEntity> {
@@ -163,8 +201,17 @@ export class PageService extends BaseService<PageEntity> {
         return updated;
     }
 
-    /** Publish: cập nhật status + tạo PageVersion snapshot (page + sections đã resolve sẵn ở resolver). */
-    async publish(id: string, sectionsSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
+    /**
+     * Publish: cập nhật status + tạo PageVersion snapshot (page + sections + nodes đã resolve sẵn
+     * ở resolver).
+     *
+     * Final whole-branch review Finding 2 (Important, plan-level): Section vẫn là hệ render SỐNG
+     * trong suốt M1/M2 (gỡ Section là 1 milestone RIÊNG, sau này) — Task 4 đổi snapshot sang chỉ
+     * còn `{page, nodes}` khiến "Khôi phục" âm thầm KHÔNG còn tác dụng gì lên nội dung THẬT đang
+     * hiển thị công khai (Section), phá vỡ triết lý cộng-thêm (additive) dùng xuyên suốt milestone
+     * này. Sửa: snapshot cả 2 -- `sectionsSnapshot` VÀ `nodesSnapshot` -- không thay thế nhau.
+     */
+    async publish(id: string, sectionsSnapshot: any[], nodesSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
         const page = await this.pageRepository.findById(id);
         if (!page) throw new NotFoundException('Không tìm thấy page.');
 
@@ -173,7 +220,7 @@ export class PageService extends BaseService<PageEntity> {
 
         await this.pageVersionRepository.create({
             pageId: id,
-            snapshot: { page: updated, sections: sectionsSnapshot },
+            snapshot: { page: updated, sections: sectionsSnapshot, nodes: nodesSnapshot },
             publishedBy,
             label,
         });
@@ -277,18 +324,12 @@ export class PageService extends BaseService<PageEntity> {
         const publishedPages = await this.pageRepository.findByCondition({ where: { status: EPageStatus.PUBLISHED } });
         if (!publishedPages.length) return null;
 
-        const sections = await this.sectionRepository.findByCondition({
-            where: { pageId: In(publishedPages.map((p) => p.id)), enabled: true },
-        });
-
-        const pageById = new Map(publishedPages.map((p) => [p.id, p]));
-        const candidates = sections
-            .map((s) => {
-                const page = pageById.get(s.pageId);
-                const ds = (s.dataSource as { mode?: string; query?: { contentTypeId?: string }; genericFilters?: { field?: string; valueSource?: string; paramName?: string }[] } | undefined);
-                if (!page || s.type !== 'content-detail' || ds?.mode !== 'detail' || ds.query?.contentTypeId !== contentTypeId) return null;
-                const filters = ds.genericFilters || [];
-                // Mở rộng (Phase 3 mục 2): MỌI filter (không chỉ đúng 1) đều PHẢI là pathParam có đủ field+paramName.
+        const candidates = publishedPages
+            .map((page) => {
+                const db = page.dataBinding as { mode?: string; contentTypeId?: string; genericFilters?: { field?: string; valueSource?: string; paramName?: string }[] } | undefined;
+                if (!db || db.mode !== 'detail' || db.contentTypeId !== contentTypeId) return null;
+                const filters = db.genericFilters || [];
+                // Giữ NGUYÊN guard cũ (Phase 3 mục 2): MỌI filter phải là pathParam có đủ field+paramName.
                 if (!filters.length || !filters.every((f) => f.valueSource === 'pathParam' && f.field && f.paramName)) return null;
                 const bindings = filters.map((f) => ({ paramName: f.paramName!, fieldKey: f.field! }));
                 return { page, bindings };

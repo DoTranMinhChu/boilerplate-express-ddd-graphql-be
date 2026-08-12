@@ -7,6 +7,7 @@ import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/conte
 import { HeaderPresetEntity } from '@/modules/headerPreset/domain/entities/headerPreset.entity';
 import { FooterPresetEntity } from '@/modules/footerPreset/domain/entities/footerPreset.entity';
 import { GraphQLMixed } from '@/core/shared/graphql/scalars';
+import { NodeEntity } from '@/modules/node/domain/entities/node.entity';
 
 @InputType('CreatePageInput')
 export class CreatePageInput {
@@ -22,6 +23,7 @@ export class CreatePageInput {
     @Field({ type: SeoInput, nullable: true }) seo?: SeoInput;
     @Field({ type: GraphQLMixed, nullable: true }) style?: Record<string, string>;
     @Field({ type: GraphQLMixed, nullable: true }) seoFieldMapping?: Record<string, string>;
+    @Field({ type: GraphQLMixed, nullable: true }) dataBinding?: Record<string, any>;
 }
 
 @InputType('UpdatePageInput')
@@ -126,6 +128,7 @@ export class PageTranslationType {
 export class PageResolverResultType {
     @Field({ type: PageEntity }) page!: PageEntity;
     @Field({ type: [SectionEntity] }) sections!: SectionEntity[];
+    @Field({ type: [NodeEntity] }) nodes!: NodeEntity[];
     @Field({ type: SeoType }) seo!: SeoType;
     @Field({ type: ContentEntryEntity, nullable: true }) entry?: ContentEntryEntity;
     @Field({ type: GraphQLMixed, nullable: true }) params?: Record<string, string>;

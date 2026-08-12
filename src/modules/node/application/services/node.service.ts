@@ -8,7 +8,10 @@ import { eventBus } from '@/core/infrastructure/events/eventBus';
 
 /** Giới hạn an toàn — xem spec §9/§10 "An toàn". */
 const MAX_TREE_DEPTH = 30;
-const MAX_NODES_PER_PAGE = 500;
+// Fix Important (Task 4 review): export để PageVersionService.restore() có thể fail-fast
+// TRƯỚC khi tạo bất kỳ node nào (xem comment ở restore()) — dùng đúng 1 hằng số duy nhất,
+// tránh lệch giá trị nếu sau này giới hạn này đổi mà quên sửa chỗ khác.
+export const MAX_NODES_PER_PAGE = 500;
 
 export class NodeService extends BaseService<NodeEntity> {
     constructor(
