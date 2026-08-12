@@ -179,8 +179,8 @@ export class PageService extends BaseService<PageEntity> {
         return updated;
     }
 
-    /** Publish: cập nhật status + tạo PageVersion snapshot (page + sections đã resolve sẵn ở resolver). */
-    async publish(id: string, sectionsSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
+    /** Publish: cập nhật status + tạo PageVersion snapshot (page + nodes đã resolve sẵn ở resolver). */
+    async publish(id: string, nodesSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
         const page = await this.pageRepository.findById(id);
         if (!page) throw new NotFoundException('Không tìm thấy page.');
 
@@ -189,7 +189,7 @@ export class PageService extends BaseService<PageEntity> {
 
         await this.pageVersionRepository.create({
             pageId: id,
-            snapshot: { page: updated, sections: sectionsSnapshot },
+            snapshot: { page: updated, nodes: nodesSnapshot },
             publishedBy,
             label,
         });

@@ -23,6 +23,7 @@ import { normalizePagePath } from '@/core/shared/utils/slug.util';
 import { FindOneOptions } from 'typeorm';
 import { PageVersionEntity } from '@/modules/page/domain/entities/pageVersion.entity';
 import { PageVersionService } from '@/modules/page/application/services/pageVersion.service';
+import { NodeService } from '@/modules/node/application/services/node.service';
 
 const PagePagination = PaginatedResponse(PageEntity);
 
@@ -37,6 +38,7 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     private headerPresetService = new HeaderPresetService();
     private footerPresetService = new FooterPresetService();
     private pageVersionService = new PageVersionService();
+    private nodeService = new NodeService();
 
     constructor() {
         const service = new PageService();
@@ -355,8 +357,8 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         @Args('label', { type: String }) label: string | undefined,
         @GQLCurrentUser() account: IAccount,
     ) {
-        const sections = await this.sectionService.findByCondition({ where: { pageId: id }, order: { order: 'ASC' } as any });
-        return this.pageService.publish(id, sections, account?.id, label);
+        const nodes = await this.nodeService.findByPage(id);
+        return this.pageService.publish(id, nodes, account?.id, label);
     }
 
     @Mutation('unpublishPage', { returnType: PageEntity })

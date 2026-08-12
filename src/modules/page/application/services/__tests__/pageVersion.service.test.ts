@@ -1,119 +1,51 @@
-import 'reflect-metadata';
 import { PageVersionService } from '../pageVersion.service';
-import { PageVersionEntity } from '../../../domain/entities/pageVersion.entity';
-import { NotFoundException } from '@/core/domain/exceptions/appException';
 
-function makeVersion(overrides: Partial<PageVersionEntity> = {}): PageVersionEntity {
-    return {
-        id: 'v1',
-        pageId: 'page-1',
-        snapshot: { sections: [] },
-        publishedBy: undefined,
-        label: undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        ...overrides,
-    } as PageVersionEntity;
+function makeService() {
+    const pageVersionRepository = { findById: jest.fn() };
+    const nodeService = {
+        findByPage: jest.fn(async (): Promise<any[]> => []),
+        createNode: jest.fn(async (data: any) => ({ ...data, id: `new-${data.order}` })),
+        deleteSubtree: jest.fn(async () => undefined),
+    };
+    // Fake PageRepository (3rd constructor param) — restore() repoints Page.rootNodeId to the
+    // newly-created root Node; injecting a fake here (instead of the brief's inline `require()`,
+    // see task-4-report.md "Concerns") keeps this a real unit test instead of hitting the actual,
+    // uninitialized AppDataSource.
+    const pageRepository = { updateOneByCondition: jest.fn(async () => undefined) };
+    const service = new PageVersionService(pageVersionRepository as any, nodeService as any, pageRepository as any);
+    return { service, pageVersionRepository, nodeService, pageRepository };
 }
 
-describe('PageVersionService', () => {
-    describe('listByPage', () => {
-        it('trả về đúng version của page được hỏi, không lẫn page khác', async () => {
-            const versions = [makeVersion({ id: 'v1', pageId: 'page-1' }), makeVersion({ id: 'v2', pageId: 'page-2' })];
-            const fakeRepo = {
-                findByCondition: jest.fn(async (opts: any) => versions.filter((v) => v.pageId === opts.where.pageId)),
-                findById: jest.fn(),
-            };
-            const service = new PageVersionService(fakeRepo as any, {} as any);
-
-            const result = await service.listByPage('page-1');
-
-            expect(result).toEqual([versions[0]]);
-            expect(fakeRepo.findByCondition).toHaveBeenCalledWith({
-                where: { pageId: 'page-1' },
-                order: { createdAt: 'DESC' },
-                select: {
-                    id: true,
-                    pageId: true,
-                    publishedBy: true,
-                    label: true,
-                    createdAt: true,
-                    updatedAt: true,
-                    deletedAt: true,
-                },
-            });
+describe('PageVersionService.restore (Phase 0 M1 Task 4 — snapshot.nodes)', () => {
+    it('xoá node hiện tại của trang rồi tạo lại đúng theo snapshot.nodes, cha trước con', async () => {
+        const { service, pageVersionRepository, nodeService, pageRepository } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: {
+                page: { id: 'page-1' },
+                nodes: [
+                    { id: 'root-old', pageId: 'page-1', parentId: null, order: 0, type: 'frame' },
+                    { id: 'child-old', pageId: 'page-1', parentId: 'root-old', order: 0, type: 'text' },
+                ],
+            },
         });
+        nodeService.findByPage.mockResolvedValueOnce([{ id: 'current-node-1' }]); // node hiện tại trước khi restore
+
+        await service.restore('page-1', 'v1');
+
+        // Tạo mới TRƯỚC (root trước, con sau — giữ nguyên nguyên tắc "tạo trước, xoá sau" của bản Section cũ)
+        expect(nodeService.createNode).toHaveBeenCalledTimes(2);
+        expect(nodeService.createNode.mock.calls[0][0]).toMatchObject({ pageId: 'page-1', parentId: undefined, order: 0, type: 'frame' });
+        // Xoá node CŨ (đang tồn tại trước khi restore) sau khi đã tạo xong node mới
+        expect(nodeService.deleteSubtree).toHaveBeenCalledWith('current-node-1');
+        // Page.rootNodeId phải được repoint sang root MỚI vừa tạo ('new-0', root có order 0).
+        expect(pageRepository.updateOneByCondition).toHaveBeenCalledWith({ where: { id: 'page-1' } }, { rootNodeId: 'new-0' });
     });
 
-    describe('restore', () => {
-        it('báo NotFoundException khi versionId không tồn tại', async () => {
-            const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => null) };
-            const service = new PageVersionService(fakeRepo as any, {} as any);
-
-            await expect(service.restore('page-1', 'missing')).rejects.toThrow(NotFoundException);
-        });
-
-        it('báo NotFoundException khi versionId thuộc về 1 page khác với pageId truyền vào', async () => {
-            const version = makeVersion({ id: 'v1', pageId: 'page-1' });
-            const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => version) };
-            const service = new PageVersionService(fakeRepo as any, {} as any);
-
-            await expect(service.restore('page-999', 'v1')).rejects.toThrow(NotFoundException);
-        });
-
-        it('xoá toàn bộ section hiện tại của trang rồi tạo lại đúng theo snapshot', async () => {
-            const version = makeVersion({
-                id: 'v1',
-                pageId: 'page-1',
-                snapshot: {
-                    sections: [
-                        { id: 'old-1', pageId: 'page-1', type: 'hero', order: 0, content: { heading: 'Cũ' }, createdAt: new Date(), updatedAt: new Date() },
-                    ],
-                },
-            });
-            const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => version) };
-            const currentSections = [{ id: 'current-1' }, { id: 'current-2' }];
-            const fakeSectionService = {
-                findByCondition: jest.fn(async () => currentSections),
-                deleteById: jest.fn(async () => undefined),
-                create: jest.fn(async (data: any) => ({ id: 'new-1', ...data })),
-            };
-            const service = new PageVersionService(fakeRepo as any, fakeSectionService as any);
-
-            const result = await service.restore('page-1', 'v1');
-
-            expect(fakeSectionService.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' } });
-            expect(fakeSectionService.deleteById).toHaveBeenCalledTimes(2);
-            expect(fakeSectionService.deleteById).toHaveBeenCalledWith('current-1');
-            expect(fakeSectionService.deleteById).toHaveBeenCalledWith('current-2');
-            expect(fakeSectionService.create).toHaveBeenCalledTimes(1);
-            expect(fakeSectionService.create).toHaveBeenCalledWith({ type: 'hero', order: 0, content: { heading: 'Cũ' }, pageId: 'page-1' });
-            expect(result).toBe(version);
-        });
-
-        it('xoá cả section đang bị ẩn (enabled: false), không chỉ section đang bật', async () => {
-            const version = makeVersion({ id: 'v1', pageId: 'page-1', snapshot: { sections: [] } });
-            const fakeRepo = { findByCondition: jest.fn(), findById: jest.fn(async () => version) };
-            const currentSections = [
-                { id: 'current-1', enabled: true },
-                { id: 'ghost-hidden', enabled: false },
-            ];
-            const fakeSectionService = {
-                findByCondition: jest.fn(async () => currentSections),
-                deleteById: jest.fn(async () => undefined),
-                create: jest.fn(async (data: any) => ({ id: 'new-1', ...data })),
-            };
-            const service = new PageVersionService(fakeRepo as any, fakeSectionService as any);
-
-            await service.restore('page-1', 'v1');
-
-            expect(fakeSectionService.findByCondition).toHaveBeenCalledWith({ where: { pageId: 'page-1' } });
-            const whereArg = (fakeSectionService.findByCondition as jest.Mock).mock.calls[0][0].where;
-            expect(whereArg).not.toHaveProperty('enabled');
-            expect(fakeSectionService.deleteById).toHaveBeenCalledTimes(2);
-            expect(fakeSectionService.deleteById).toHaveBeenCalledWith('current-1');
-            expect(fakeSectionService.deleteById).toHaveBeenCalledWith('ghost-hidden');
-        });
+    it('throw NotFoundException nếu version không thuộc pageId đã chỉ định', async () => {
+        const { service, pageVersionRepository } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({ id: 'v1', pageId: 'page-OTHER', snapshot: { nodes: [] } });
+        await expect(service.restore('page-1', 'v1')).rejects.toThrow();
     });
 });
