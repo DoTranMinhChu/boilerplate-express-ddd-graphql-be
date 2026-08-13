@@ -16,6 +16,12 @@
 // Chạy:
 //   npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/migrateSectionsToNodes.ts --dry-run
 //   npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/migrateSectionsToNodes.ts
+//
+// Chạy lại trên 1 page ĐÃ migrate (vd để lấy fix props-shape mới): script idempotent theo
+// page (`if (page.rootNodeId) { skipped++; continue; }`) nên KHÔNG tự động migrate lại — chưa
+// có flag --force/tự reset. Phải tự xoá tay trước khi chạy lại:
+//   DELETE FROM page_node WHERE "pageId" = '<page id>';
+//   UPDATE page SET "rootNodeId" = NULL WHERE id = '<page id>';
 import 'reflect-metadata';
 import { AppDataSource } from '@/config/database.config';
 import { PageEntity } from '@/modules/page/domain/entities/page.entity';
@@ -46,8 +52,10 @@ type PlannedNode = {
 
 type SectionPlan = {
     /** Nhãn mô tả nhánh xử lý ÁP DỤNG cho Section này — Fix Important (Finding 2, final
-     * whole-branch review): log ra khi --dry-run để người đọc sanity-check coverage (đúng 8
-     * loại generic + legacy fallback) mà không cần đọc source của script này. */
+     * whole-branch review): log ra khi --dry-run để người đọc sanity-check coverage (M2b:
+     * TẤT CẢ 22 loại Section đã biết đều route sang 1 nhánh thật, không phải `legacy:<type>`
+     * — nhánh đó giờ chỉ còn là lưới an toàn cho 1 type lạ chưa từng thấy) mà không cần đọc
+     * source của script này. */
     branch: string;
     nodes: PlannedNode[];
 };
@@ -68,9 +76,9 @@ type GenericChildSpec = Omit<PlannedNode, 'tempId' | 'parentTempId' | 'order'>;
  * related-entries/backlink-entries) CŨNG là loại generic đã có cách dịch, nhưng cần
  * node con LỒNG NHIỀU CẤP nên được xử lý bằng nhánh `if` riêng ngay trong vòng lặp
  * chính (xem main()), không qua hàm này — xem buildGridRepeatConfig() và nhánh
- * `if (section.type === 'text-image')`. MỌI loại khác (12 editorial +
- * content-detail + mixed-feed, xem Finding 1 comment ở đầu file) VẪN rơi về nhánh
- * `legacy:<type>` cũ, đợi M2b. */
+ * `if (section.type === 'text-image')`. 12 loại editorial (EDITORIAL_TYPES_SELF_CONTAINED)
+ * + content-detail + mixed-feed có nhánh `if` riêng của chính chúng ngay dưới trong
+ * planSection() (M2b) — KHÔNG còn rơi về `legacy:<type>`. */
 const GENERIC_TYPES_WITH_NODE_MAPPING = new Set(['hero', 'cta', 'custom-block', 'form']);
 
 /** 12 widget editorial (Phase 0 M2b) — mỗi loại dịch sang ĐÚNG 1 Node tự chứa (không
@@ -86,7 +94,7 @@ const EDITORIAL_TYPES_SELF_CONTAINED = new Set([
 
 const GRID_COLS_TEMPLATE: Record<string, string> = { 'grid-2': 'repeat(2,1fr)', 'grid-3': 'repeat(3,1fr)', 'grid-4': 'repeat(4,1fr)' };
 
-type JsonbField = 'content' | 'dataSource' | 'fieldMapping';
+type JsonbField = 'content' | 'dataSource' | 'fieldMapping' | 'animation';
 
 /** Final whole-branch review Finding 3 (Important): cảnh báo khi 1 cột jsonb
  * (content/dataSource/fieldMapping) bị lưu dạng JSON-string double-encoded thay vì
@@ -179,7 +187,8 @@ function buildCustomBlockChildren(section: SectionEntity): GenericChildSpec[] {
 }
 
 /** Dùng chung cho 3 loại "grid card" (content-grid/related-entries/backlink-entries —
- * KHÔNG gồm mixed-feed, xem Finding 1 comment ở đầu file) — chỉ trả config
+ * KHÔNG gồm mixed-feed, mixed-feed có nhánh `if` self-contained riêng của nó trong
+ * planSection(), xem Fix 4) — chỉ trả config
  * (`repeat`/`mapping`/`headingText`), KHÔNG tạo Node — node con của 3 loại này cần lồng
  * nhiều cấp (Frame lưới > card template mang `repeat` thật > Image/Text con của card, đọc
  * field qua dataBinding boundField) nên được tạo trực tiếp trong main() (giống text-image),
@@ -269,7 +278,8 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
     }
 
     // Phase 0 M2a: 3 loại "grid card" (content-grid/related-entries/backlink-entries —
-    // KHÔNG gồm mixed-feed, xem Finding 1 comment ở đầu file) — khác nhau ở NGUỒN dữ liệu
+    // KHÔNG gồm mixed-feed, mixed-feed có nhánh self-contained riêng, xem `if (section.type
+    // === 'mixed-feed')` dưới đây) — khác nhau ở NGUỒN dữ liệu
     // (repeat.source) nhưng dùng chung 1 khung (Frame lưới > 1 card template mang `repeat`
     // thật, NodeRenderer tự expand thành N node anh em lúc render — xem
     // resolveRenderableChildren.ts, đã có từ M1). Card template cần lồng con (Image/Text đọc
@@ -324,6 +334,7 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
             content: `${section.type} sẽ mất nội dung (content) — node sẽ trống hoặc thiếu dữ liệu hiển thị.`,
             dataSource: `${section.type} sẽ mất nguồn dữ liệu (dataSource) — chỉ ảnh hưởng PROJECT_SHOWCASE/LOGO_GRID/FEATURED_ENTRY (3 loại dùng dataSource trong 12 loại editorial), vô hại với 9 loại còn lại.`,
             fieldMapping: `${section.type} sẽ mất field mapping — chỉ ảnh hưởng PROJECT_SHOWCASE/LOGO_GRID/FEATURED_ENTRY.`,
+            animation: `${section.type} sẽ mất hiệu ứng animation đã cấu hình (nếu có) — node sẽ hiện nhưng không animate.`,
         });
         nodes.push({
             tempId: nextTempId(),
@@ -337,7 +348,8 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
                 content: section.content,
                 dataSource: section.dataSource,
                 fieldMapping: section.fieldMapping,
-                legacyAnimation: section.animation ?? [],
+                legacyAnimation: Array.isArray(section.animation) ? section.animation : [],
+                enabled: section.enabled,
             },
             dataBinding: { mode: 'static' },
             responsiveOverrides: {},
@@ -350,8 +362,15 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
     // Phase 0 spec gốc §5.1, đã sửa ở spec M2b §6). contentTypeId ưu tiên Page.dataBinding (nếu
     // đã backfill — script backfillPageDataBinding.ts) trước Section.dataSource.query.contentTypeId.
     if (section.type === 'content-detail') {
-        warnIfMalformedJsonb(section, { dataSource: 'content-detail sẽ không suy được contentTypeId từ Section (dùng Page.dataBinding nếu đã backfill, nếu không thì node sẽ thiếu contentTypeId).' });
+        warnIfMalformedJsonb(section, {
+            dataSource: 'content-detail sẽ không suy được contentTypeId từ Section (dùng Page.dataBinding nếu đã backfill, nếu không thì node sẽ thiếu contentTypeId).',
+            content: 'content-detail sẽ mất cấu hình fieldLayout (Bố cục hiển thị đã tuỳ biến) — node sẽ rơi về heuristic mặc định (ảnh đầu tiên = hero, chữ đầu tiên = tiêu đề).',
+            animation: 'content-detail sẽ mất hiệu ứng animation đã cấu hình (ảnh/tiêu đề/từng field) — node sẽ hiện nhưng không animate.',
+        });
         const ds = (section.dataSource || {}) as { query?: { contentTypeId?: string } };
+        // Nếu 1 Page có NHIỀU HƠN 1 Section content-detail, page.dataBinding (nếu có) thắng cho
+        // TẤT CẢ các Section đó — Section content-detail thứ 2 bind vào 1 content type khác sẽ
+        // âm thầm nhận cùng (sai) contentTypeId này. Chưa sửa ở lần fix này, chỉ ghi nhận.
         const contentTypeId = page.dataBinding?.contentTypeId ?? ds.query?.contentTypeId;
         nodes.push({
             tempId: nextTempId(),
@@ -361,7 +380,12 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
             layoutMode: 'flow',
             style: {},
             layout: {},
-            props: { contentTypeId },
+            props: {
+                contentTypeId,
+                content: section.content,
+                legacyAnimation: Array.isArray(section.animation) ? section.animation : [],
+                enabled: section.enabled,
+            },
             dataBinding: { mode: 'static' },
             responsiveOverrides: {},
         });
@@ -376,6 +400,7 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
         warnIfMalformedJsonb(section, {
             dataSource: 'mixed-feed sẽ không có sources — node sẽ trống (không render entry nào).',
             content: 'mixed-feed sẽ mất heading của cả block (cosmetic only).',
+            animation: 'mixed-feed sẽ mất hiệu ứng animation (heading/grid) đã cấu hình — node sẽ hiện nhưng không animate.',
         });
         nodes.push({
             tempId: nextTempId(),
@@ -385,7 +410,13 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
             layoutMode: 'flow',
             style: {},
             layout: {},
-            props: { dataSource: section.dataSource, content: section.content },
+            props: {
+                dataSource: section.dataSource,
+                content: section.content,
+                layoutPreset: section.layoutPreset,
+                legacyAnimation: Array.isArray(section.animation) ? section.animation : [],
+                enabled: section.enabled,
+            },
             dataBinding: { mode: 'static' },
             responsiveOverrides: {},
         });
