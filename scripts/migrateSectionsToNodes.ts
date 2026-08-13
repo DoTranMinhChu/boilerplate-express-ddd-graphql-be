@@ -96,17 +96,16 @@ const GRID_COLS_TEMPLATE: Record<string, string> = { 'grid-2': 'repeat(2,1fr)', 
 
 type JsonbField = 'content' | 'dataSource' | 'fieldMapping' | 'animation';
 
-/** Final whole-branch review Finding 3 (Important): cảnh báo khi 1 cột jsonb
- * (content/dataSource/fieldMapping) bị lưu dạng JSON-string double-encoded thay vì
- * object thật — bug dữ liệu đã xác nhận có thật (tìm thấy trên page đã xoá mềm lúc
- * review, nên không kích hoạt ở lần chạy thật, nhưng có thể gặp trên môi trường mới
- * với dữ liệu hỏng còn sống). `(section.X || {}) as {...}` không throw khi X là 1
- * string scalar (property access trên string primitive chỉ ra `undefined`), nên
- * mọi `build*` hàm đọc content/dataSource/fieldMapping đều gọi hàm này để không âm
- * thầm bỏ sót — `impactByField` mô tả ĐÚNG hậu quả thật cho từng field/loại Section,
- * không dùng 1 câu chung (dataSource hỏng nặng hơn content/fieldMapping hỏng: repeat
- * mất luôn contentTypeKey -> fetchRepeatEntries trả 0 entry, cả block trống trơn,
- * không chỉ "thiếu field bind"). */
+/** Final whole-branch review Finding 3 (Important), widened ở M2b's own final-review fix để
+ * gồm cả `animation`: cảnh báo khi 1 cột jsonb (content/dataSource/fieldMapping/animation) bị lưu
+ * dạng JSON-string double-encoded thay vì object/array thật — bug dữ liệu đã xác nhận có thật
+ * (tìm thấy trên page đã xoá mềm lúc review, nên không kích hoạt ở lần chạy thật, nhưng có thể
+ * gặp trên môi trường mới với dữ liệu hỏng còn sống). `(section.X || {}) as {...}` không throw
+ * khi X là 1 string scalar (property access trên string primitive chỉ ra `undefined`), nên mọi
+ * `build*`/branch đọc content/dataSource/fieldMapping/animation đều gọi hàm này để không âm thầm
+ * bỏ sót — `impactByField` mô tả ĐÚNG hậu quả thật cho từng field/loại Section, không dùng 1 câu
+ * chung (dataSource hỏng nặng hơn content/fieldMapping hỏng: repeat mất luôn contentTypeKey ->
+ * fetchRepeatEntries trả 0 entry, cả block trống trơn, không chỉ "thiếu field bind"). */
 function warnIfMalformedJsonb(section: SectionEntity, impactByField: Partial<Record<JsonbField, string>>): void {
     for (const field of Object.keys(impactByField) as JsonbField[]) {
         if (typeof section[field] === 'string') {
@@ -187,8 +186,8 @@ function buildCustomBlockChildren(section: SectionEntity): GenericChildSpec[] {
 }
 
 /** Dùng chung cho 3 loại "grid card" (content-grid/related-entries/backlink-entries —
- * KHÔNG gồm mixed-feed, mixed-feed có nhánh `if` self-contained riêng của nó trong
- * planSection(), xem Fix 4) — chỉ trả config
+ * KHÔNG gồm mixed-feed, mixed-feed có nhánh `if (section.type === 'mixed-feed')` self-contained
+ * riêng của nó trong planSection() — xem bên dưới) — chỉ trả config
  * (`repeat`/`mapping`/`headingText`), KHÔNG tạo Node — node con của 3 loại này cần lồng
  * nhiều cấp (Frame lưới > card template mang `repeat` thật > Image/Text con của card, đọc
  * field qua dataBinding boundField) nên được tạo trực tiếp trong main() (giống text-image),
