@@ -84,7 +84,13 @@ async function main() {
 
         console.log(`[backfill] Page ${page.id} (${page.internalName}, path=${page.path}): dataBinding <- ${JSON.stringify(newDataBinding)}`);
         if (!dryRun) {
-            await pageRepo.update({ id: page.id }, { dataBinding: newDataBinding });
+            // TypeORM's QueryDeepPartialEntity mapped type doesn't accept a plain object literal
+            // for a jsonb `Record<string, any>` column via .update() (pre-existing TypeORM typing
+            // gap, unrelated to this script's own logic — found only now because this is the first
+            // time this exact call path has actually been compiled+run instead of just tsc-checked
+            // as part of the whole repo). `as any` on the whole partial, not on `newDataBinding`
+            // itself, keeps `newDataBinding`'s own shape fully type-checked above.
+            await pageRepo.update({ id: page.id }, { dataBinding: newDataBinding } as any);
         }
         updated++;
     }
