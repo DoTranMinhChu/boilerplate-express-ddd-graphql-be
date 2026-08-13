@@ -427,11 +427,17 @@ async function main() {
                 const idByTempId = new Map<string, string>();
                 for (const planned of nodes) {
                     const { tempId, parentTempId, ...fields } = planned;
-                    const created = trxNodeRepo.create({
-                        ...fields,
-                        pageId: page.id,
-                        parentId: parentTempId === null ? root.id : idByTempId.get(parentTempId)!,
-                    });
+                    // Final-review re-review Minor #1: `idByTempId.get(parentTempId)!` bare non-null
+                    // assertion would silently insert `parentId: undefined` (TypeORM omits the
+                    // column) if a future planSection() branch ever pushed a child before its
+                    // parent — creating a SECOND root and detaching a subtree with no error
+                    // anywhere. Convention-only guarantees (a comment) don't survive a careless
+                    // edit; fail loudly instead.
+                    const parentId = parentTempId === null ? root.id : idByTempId.get(parentTempId);
+                    if (parentId === undefined) {
+                        throw new Error(`planSection emitted child tempId="${tempId}" before its parent tempId="${parentTempId}" -- parent-before-child order violated.`);
+                    }
+                    const created = trxNodeRepo.create({ ...fields, pageId: page.id, parentId });
                     await trxNodeRepo.save(created);
                     idByTempId.set(tempId, created.id);
                 }
