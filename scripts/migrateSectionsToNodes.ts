@@ -13,6 +13,11 @@
 // giờ là dead code cho MỌI type đã biết — giữ lại làm lưới an toàn cho 1 Section type
 // lạ (custom, chưa từng thấy) thay vì throw cứng, không xoá.
 //
+// Phase 0 M2c: `props.enabled` giờ được ghi cho TẤT CẢ 22 loại (8 loại generic của M2a
+// trước đây thiếu field này) — FE's NodeRenderer.tsx đọc nó để bỏ qua render 1 Section
+// admin đã tắt hiển thị, khớp đúng hành vi `resolveCmsPageProps.ts`'s `.filter(s =>
+// s.enabled)` cho Section.
+//
 // Chạy:
 //   npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/migrateSectionsToNodes.ts --dry-run
 //   npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/migrateSectionsToNodes.ts
@@ -265,7 +270,12 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
         warnIfMalformedJsonb(section, { content: 'text-image will have no heading/text/image — Section will migrate to an empty 2-column layout.' });
         const content = (section.content || {}) as { heading?: string; text?: string; image?: string; imagePosition?: 'left' | 'right' };
         const wrapperId = nextTempId();
-        nodes.push({ tempId: wrapperId, parentTempId: null, order: section.order, type: 'frame', layoutMode: 'flow', style: {}, layout: { direction: 'row' }, props: {} });
+        // Phase 0 M2c fix (final whole-branch review Important #3, generalized beyond M2b's own
+        // 3 branches): wrapper Frame giờ mang enabled — trước fix này KHÔNG nhánh nào trong 8
+        // loại generic (M2a) ghi enabled, chỉ 3 nhánh self-contained của M2b có. NodeRenderer.tsx
+        // (FE) đọc field này để bỏ qua render 1 Section admin đã tắt hiển thị — thiếu nó thì
+        // Section enabled=false vẫn hiện lại khi trang render qua Node tree.
+        nodes.push({ tempId: wrapperId, parentTempId: null, order: section.order, type: 'frame', layoutMode: 'flow', style: {}, layout: { direction: 'row' }, props: { enabled: section.enabled } });
         const textFrameId = nextTempId();
         nodes.push({ tempId: nextTempId(), parentTempId: wrapperId, order: content.imagePosition === 'left' ? 0 : 1, type: 'image', layoutMode: 'flow', style: {}, layout: {}, props: { src: content.image ?? '', alt: content.heading ?? '' } });
         nodes.push({ tempId: textFrameId, parentTempId: wrapperId, order: content.imagePosition === 'left' ? 1 : 0, type: 'frame', layoutMode: 'flow', style: {}, layout: { direction: 'column' }, props: {} });
@@ -291,7 +301,9 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
         const { repeat, mapping, headingText } = buildGridRepeatConfig(section, sourceBySectionType[section.type]);
 
         const wrapperId = nextTempId();
-        nodes.push({ tempId: wrapperId, parentTempId: null, order: section.order, type: 'frame', layoutMode: 'flow', style: {}, layout: {}, props: {} });
+        // Phase 0 M2c fix (final whole-branch review Important #3, generalized): xem comment
+        // tương tự ở nhánh text-image phía trên.
+        nodes.push({ tempId: wrapperId, parentTempId: null, order: section.order, type: 'frame', layoutMode: 'flow', style: {}, layout: {}, props: { enabled: section.enabled } });
         let childOrder = 0;
         if (headingText) {
             nodes.push({ tempId: nextTempId(), parentTempId: wrapperId, order: childOrder++, type: 'text', layoutMode: 'flow', style: {}, layout: {}, props: { text: headingText } });
@@ -316,8 +328,10 @@ function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
         const children = buildGenericNodeChildren(section);
         // Wrapper Frame giữ đúng `order` của Section gốc — mọi children thật (Text/
         // Image/Button...) nằm bên trong wrapper này, không phải con trực tiếp của root.
+        // Phase 0 M2c fix (final whole-branch review Important #3, generalized): xem comment
+        // tương tự ở nhánh text-image phía trên (enabled).
         const wrapperId = nextTempId();
-        nodes.push({ tempId: wrapperId, parentTempId: null, order: section.order, type: 'frame', layoutMode: 'flow', style: {}, layout: {}, props: {} });
+        nodes.push({ tempId: wrapperId, parentTempId: null, order: section.order, type: 'frame', layoutMode: 'flow', style: {}, layout: {}, props: { enabled: section.enabled } });
         for (let i = 0; i < children.length; i++) {
             nodes.push({ ...children[i], tempId: nextTempId(), parentTempId: wrapperId, order: i });
         }
