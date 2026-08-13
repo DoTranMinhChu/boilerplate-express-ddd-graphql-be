@@ -5,22 +5,13 @@
 // được bình thường cho tới khi Phase 6 gỡ hẳn (xem spec §11 Phase 6). Idempotent:
 // page đã có rootNodeId sẽ bị skip.
 //
-// Phase 0 M2a: 8 loại Section "generic" (hero/text-image/cta/custom-block/
-// content-grid/related-entries/backlink-entries/form) đã có cách dịch cấu trúc
-// sang Node primitive thật — MỌI loại khác (12 editorial + content-detail +
-// mixed-feed) VẪN rơi về nhánh `legacy:<type>` cũ (chưa xử lý, đợi M2b).
-//
-// Final whole-branch review Finding 1 (Critical): `mixed-feed` bị LOẠI khỏi danh
-// sách "grid card" — khác 3 loại còn lại (content-grid/related-entries/
-// backlink-entries) dùng CHUNG 1 `fieldMapping` cho mọi entry, mixed-feed trộn
-// NHIỀU content type trong 1 feed và MỖI content type có `fieldMapping` RIÊNG
-// (`section.dataSource.sources[].fieldMapping`) — 1 card template Node (1
-// `dataBinding.field` mỗi field) không thể diễn tả "tên field khác nhau theo từng
-// content type". Migrate `repeat.sources` nguyên trạng cũng sẽ đưa `fieldMapping`
-// (không có trong `MixedFeedSourceInput` — resolver chỉ nhận `contentTypeId`/
-// `limit`) vào 1 GraphQL call, fail input validation. mixed-feed cần thành 1 Node
-// primitive tự thân ở M2b (cùng content-detail), không phải card-template instance
-// bây giờ — rơi về nhánh `legacy:mixed-feed` như cũ.
+// Phase 0 M2b: TẤT CẢ 22 loại Section đã biết giờ có cách dịch cấu trúc sang Node
+// primitive thật — 8 loại "generic" (M2a: hero/text-image/cta/custom-block/
+// content-grid/related-entries/backlink-entries/form) + 14 loại "tự chứa" (M2b: 12
+// editorial + content-detail + mixed-feed, xem EDITORIAL_TYPES/nhánh content-detail/
+// mixed-feed trong planSection() dưới đây). Nhánh `legacy:<type>` cuối planSection()
+// giờ là dead code cho MỌI type đã biết — giữ lại làm lưới an toàn cho 1 Section type
+// lạ (custom, chưa từng thấy) thay vì throw cứng, không xoá.
 //
 // Chạy:
 //   npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/migrateSectionsToNodes.ts --dry-run
@@ -81,6 +72,17 @@ type GenericChildSpec = Omit<PlannedNode, 'tempId' | 'parentTempId' | 'order'>;
  * content-detail + mixed-feed, xem Finding 1 comment ở đầu file) VẪN rơi về nhánh
  * `legacy:<type>` cũ, đợi M2b. */
 const GENERIC_TYPES_WITH_NODE_MAPPING = new Set(['hero', 'cta', 'custom-block', 'form']);
+
+/** 12 widget editorial (Phase 0 M2b) — mỗi loại dịch sang ĐÚNG 1 Node tự chứa (không
+ * decompose), khác 4 loại trong GENERIC_TYPES_WITH_NODE_MAPPING ở trên (decompose ra nhiều node
+ * con phẳng) và khác text-image/3-loại-grid-card (decompose ra cây lồng nhiều cấp, xử lý trực
+ * tiếp trong planSection()). Giá trị PHẢI khớp đúng ENodeType (FE, node.constants.ts) — xem
+ * Task 7 phía FE. */
+const EDITORIAL_TYPES_SELF_CONTAINED = new Set([
+    'media-hero', 'intro-rail', 'spotlight-list', 'stat-metrics', 'timeline-list',
+    'process-steps', 'contact-columns', 'accordion-list', 'inquiry-form',
+    'project-showcase', 'logo-grid', 'featured-entry',
+]);
 
 const GRID_COLS_TEMPLATE: Record<string, string> = { 'grid-2': 'repeat(2,1fr)', 'grid-3': 'repeat(3,1fr)', 'grid-4': 'repeat(4,1fr)' };
 
@@ -241,7 +243,7 @@ function buildFormChildren(section: SectionEntity): GenericChildSpec[] {
  * kỳ lỗi khác trong logic dưới đây chỉ lộ ra ở LẦN CHẠY THẬT — trái với kỳ vọng Task 9 Step 3
  * của plan gốc. Vì hàm này chạy giống nhau ở cả 2 chế độ, --dry-run giờ thấy đúng những gì
  * chạy thật sẽ thấy (không tính lại khác đi). */
-function planSection(section: SectionEntity): SectionPlan {
+function planSection(section: SectionEntity, page: PageEntity): SectionPlan {
     let n = 0;
     const nextTempId = () => `n${n++}`;
     const nodes: PlannedNode[] = [];
@@ -313,8 +315,85 @@ function planSection(section: SectionEntity): SectionPlan {
         return { branch: `${section.type} (buildGenericNodeChildren)`, nodes };
     }
 
-    // Chưa xử lý ở M2a (12 editorial + content-detail + mixed-feed, xem Finding 1 comment ở
-    // đầu file) — giữ nguyên hành vi placeholder cũ từ M1, đợi M2b.
+    // Phase 0 M2b: 12 widget editorial — mỗi loại dịch sang ĐÚNG 1 Node tự chứa (không
+    // decompose ra nhiều node con, khác 8 loại generic ở trên), giữ nguyên `type` (bỏ tiền tố
+    // `legacy:`). Node primitive (FE, ddd-graphql-fe/src/modules/cms/node/primitives/*.tsx) tự
+    // đọc content/dataSource/fieldMapping/legacyAnimation từ `node.props` — không cần Node con.
+    if (EDITORIAL_TYPES_SELF_CONTAINED.has(section.type)) {
+        warnIfMalformedJsonb(section, {
+            content: `${section.type} sẽ mất nội dung (content) — node sẽ trống hoặc thiếu dữ liệu hiển thị.`,
+            dataSource: `${section.type} sẽ mất nguồn dữ liệu (dataSource) — chỉ ảnh hưởng PROJECT_SHOWCASE/LOGO_GRID/FEATURED_ENTRY (3 loại dùng dataSource trong 12 loại editorial), vô hại với 9 loại còn lại.`,
+            fieldMapping: `${section.type} sẽ mất field mapping — chỉ ảnh hưởng PROJECT_SHOWCASE/LOGO_GRID/FEATURED_ENTRY.`,
+        });
+        nodes.push({
+            tempId: nextTempId(),
+            parentTempId: null,
+            order: section.order,
+            type: section.type,
+            layoutMode: 'flow',
+            style: {},
+            layout: {},
+            props: {
+                content: section.content,
+                dataSource: section.dataSource,
+                fieldMapping: section.fieldMapping,
+                legacyAnimation: section.animation ?? [],
+            },
+            dataBinding: { mode: 'static' },
+            responsiveOverrides: {},
+        });
+        return { branch: `${section.type} (editorial self-contained primitive)`, nodes };
+    }
+
+    // Phase 0 M2b: content-detail — 1 Node tự chứa, tự fetch ContentType fields + đọc
+    // context.contextEntry (đã có sẵn từ M1) — KHÔNG cần Node con field-bound (dự tính sai ở
+    // Phase 0 spec gốc §5.1, đã sửa ở spec M2b §6). contentTypeId ưu tiên Page.dataBinding (nếu
+    // đã backfill — script backfillPageDataBinding.ts) trước Section.dataSource.query.contentTypeId.
+    if (section.type === 'content-detail') {
+        warnIfMalformedJsonb(section, { dataSource: 'content-detail sẽ không suy được contentTypeId từ Section (dùng Page.dataBinding nếu đã backfill, nếu không thì node sẽ thiếu contentTypeId).' });
+        const ds = (section.dataSource || {}) as { query?: { contentTypeId?: string } };
+        const contentTypeId = page.dataBinding?.contentTypeId ?? ds.query?.contentTypeId;
+        nodes.push({
+            tempId: nextTempId(),
+            parentTempId: null,
+            order: section.order,
+            type: 'content-detail',
+            layoutMode: 'flow',
+            style: {},
+            layout: {},
+            props: { contentTypeId },
+            dataBinding: { mode: 'static' },
+            responsiveOverrides: {},
+        });
+        return { branch: 'content-detail (self-contained primitive)', nodes };
+    }
+
+    // Phase 0 M2b: mixed-feed — 1 Node tự chứa, giữ nguyên `dataSource.sources[].fieldMapping`
+    // (mỗi content-type trong feed có field key riêng — KHÔNG decompose thành card-template dùng
+    // chung 1 dataBinding.field như content-grid, đúng lý do M2a's final review đã revert loại
+    // này khỏi nhóm "grid card" — xem spec M2b §4).
+    if (section.type === 'mixed-feed') {
+        warnIfMalformedJsonb(section, {
+            dataSource: 'mixed-feed sẽ không có sources — node sẽ trống (không render entry nào).',
+            content: 'mixed-feed sẽ mất heading của cả block (cosmetic only).',
+        });
+        nodes.push({
+            tempId: nextTempId(),
+            parentTempId: null,
+            order: section.order,
+            type: 'mixed-feed',
+            layoutMode: 'flow',
+            style: {},
+            layout: {},
+            props: { dataSource: section.dataSource, content: section.content },
+            dataBinding: { mode: 'static' },
+            responsiveOverrides: {},
+        });
+        return { branch: 'mixed-feed (self-contained primitive)', nodes };
+    }
+
+    // Chưa biết (Section type lạ, không thuộc 22 loại hiện có) — giữ nguyên hành vi
+    // placeholder cũ từ M1, làm lưới an toàn thay vì throw cứng.
     nodes.push({
         tempId: nextTempId(),
         parentTempId: null,
@@ -391,7 +470,7 @@ async function main() {
         // NGAY trong --dry-run, không phải chỉ ở lần chạy thật. planSection() không đọc/ghi
         // DB nên gọi trước an toàn ở cả 2 chế độ; nhánh dưới đây TÁI SỬ DỤNG đúng `plans` này
         // để lưu (không tính lại) — đảm bảo --dry-run log ra ĐÚNG những gì chạy thật sẽ tạo.
-        const plans = sections.map((section) => planSection(section));
+        const plans = sections.map((section) => planSection(section, page));
 
         if (dryRun) {
             for (let i = 0; i < sections.length; i++) {
