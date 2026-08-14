@@ -10,9 +10,8 @@ export interface UsageLocation {
     pageId: string;
     pageLabel: string;
     pagePath: string;
-    /** Phase 0 M1 Task 6: nhánh Node/Page.dataBinding mới — CẠNH sectionId/sectionType cũ,
-     * không thay thế. Kết quả từ Node luôn có nodeId/nodeType, KHÔNG có sectionId/sectionType
-     * (và ngược lại), nên cả 4 field đều optional. */
+    /** UsageLocation từ Node.repeat (nodeId?/nodeType? được set) hoặc Page.dataBinding (nodeId?/nodeType? undefined).
+     * Node/page_node là hệ building duy nhất kể từ Phase 0 M3b (Section đã bị xoá). */
     nodeId?: string;
     nodeType?: string;
     matchKind: 'detail' | 'detail-not-visible' | 'pinned' | 'pinned-not-visible' | 'dynamic-confirmed' | 'dynamic-possible' | 'contextual';
