@@ -2,8 +2,6 @@ import { PageVersionEntity } from '../../domain/entities/pageVersion.entity';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
 import { NodeService, MAX_NODES_PER_PAGE } from '@/modules/node/application/services/node.service';
 import { NodeEntity } from '@/modules/node/domain/entities/node.entity';
-import { SectionService } from '@/modules/section/application/services/section.service';
-import { SectionEntity } from '@/modules/section/domain/entities/section.entity';
 import { PageRepository } from '../../infrastructure/persistence/page.repository';
 import { BaseService } from '@/core/application/services/base.service';
 import { NotFoundException, BadRequestException } from '@/core/domain/exceptions/appException';
@@ -22,11 +20,6 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
         // AppDataSource (confirmed by running the brief's own Step 1 test against the literal
         // inline-require() version: it throws "No metadata for PageEntity was found").
         private readonly pageRepository = new PageRepository(),
-        // Final whole-branch review Finding 2: Section is STILL the live rendering path
-        // throughout M1/M2 (removing it is a separate, later milestone) -- restore() must keep
-        // acting on BOTH Section and Node, additively, or "Restore" silently stops touching the
-        // content actually rendered on the site the moment Task 4 switched the snapshot shape.
-        private readonly sectionService = new SectionService(),
     ) {
         super(pageVersionRepository, 'PageVersion');
     }
@@ -51,30 +44,12 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
         });
     }
 
-    /** Khôi phục: tạo lại TOÀN BỘ cây Node theo snapshot (cha trước, con sau — giữ đúng
-     * `parentId` nội bộ vì id cũ không được tái sử dụng, phải map id-cũ -> id-mới khi tạo con)
-     * VÀ/HOẶC toàn bộ Section theo snapshot (Section vẫn là hệ render sống song song Node trong
-     * giai đoạn cutover — final whole-branch review Finding 2), rồi xoá cây Node và/hoặc Section
-     * hiện tại của trang. Tạo trước - xoá sau (như bản Section cũ) để 1 lỗi giữa chừng không làm
-     * mất TRẮNG cả cũ lẫn mới.
-     *
-     * Re-review round 2, Finding A + B: ba hình dạng snapshot cùng tồn tại trong lịch sử --
-     * `{page, sections}` (row cũ trước Task 4, KHÔNG có key `nodes`), `{page, nodes}` (giai đoạn
-     * hẹp giữa Task 4 tự thân, đã đóng, KHÔNG có key `sections`), và `{page, sections, nodes}`
-     * (hình dạng đúng hiện tại). restore() phải xử lý ĐỘC LẬP từng hệ theo việc KEY đó có tồn tại
-     * trong snapshot thô hay không (`'sections' in snapshot` / `'nodes' in snapshot`) -- KHÔNG
-     * theo giá trị falsy/rỗng của nó, vì `[]` là giá trị hợp lệ ("khôi phục về rỗng") còn "không có
-     * key" nghĩa là "snapshot này không hề nói gì về hệ đó, đừng đụng vào":
-     * - Finding B: nếu chặn dựa trên `snapshot.nodes` rỗng/thiếu (bản fix Finding 1 cũ) thì MỌI row
-     *   cũ trước Task 4 (luôn thiếu key `nodes`) throw ngay, không khôi phục được GÌ cả -- kể cả
-     *   Section mà nó vẫn khôi phục tốt trước khi có Task 4. Nay: thiếu key `nodes` => bỏ qua hoàn
-     *   toàn bước Node (không throw, không đụng cây Node/`rootNodeId` hiện tại), CHỈ throw nếu
-     *   CẢ HAI key đều thiếu (snapshot không nói gì về hệ nào cả -- không có gì để khôi phục).
-     * - Finding A: nếu đọc `snapshot?.sections || []` cho row dạng `{page, nodes}` (thiếu key
-     *   `sections`) thì mảng rỗng thu được trông giống "khôi phục về 0 Section" -- vòng xoá-Section
-     *   hiện tại vẫn chạy, xoá sạch Section ĐANG SỐNG của trang mà không tạo gì thay thế. Nay:
-     *   thiếu key `sections` => bỏ qua hoàn toàn bước Section (không đụng Section hiện tại).
-     */
+    /** Khôi phục Page về 1 PageVersion đã lưu. Snapshot chỉ còn 1 hình dạng kể từ Phase 0 M3b:
+     * `{ page, nodes }` — Section đã bị xoá hoàn toàn, không còn snapshot `{page, sections}` cũ
+     * nào cần xử lý (dự án chỉ chạy local/test, breaking change được chấp nhận). Node-tree
+     * được khôi phục bằng cách tạo lại TOÀN BỘ cây từ snapshot rồi xoá cây hiện tại (tạo mới
+     * trước, xoá cũ sau — an toàn hơn xoá trước tạo sau nếu có lỗi giữa chừng), sau đó repoint
+     * `Page.rootNodeId` sang root Node vừa tạo. */
     async restore(pageId: string, versionId: string): Promise<PageVersionEntity> {
         const version = await this.findById(versionId);
         if (!version) throw new NotFoundException('Không tìm thấy phiên bản.');
@@ -82,20 +57,16 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
             throw new NotFoundException('Phiên bản này không thuộc về trang đã chỉ định.');
         }
 
-        const hasSectionsKey = version.snapshot != null && 'sections' in version.snapshot;
         const hasNodesKey = version.snapshot != null && 'nodes' in version.snapshot;
 
-        // Cả 2 key đều thiếu (hoặc `snapshot` chính nó null/undefined) -- snapshot này không nói
-        // gì về Section HAY Node, KHÔNG có gì để khôi phục ở dạng nào -- dữ liệu hỏng/trống thực
-        // sự. Throw ngay, KHÔNG mutate gì (chưa đọc currentNodes/currentSections nào ở đây).
-        if (!hasSectionsKey && !hasNodesKey) {
-            throw new BadRequestException(
-                'Phiên bản này không có dữ liệu Section hoặc Node nào để khôi phục (snapshot trống hoặc dữ liệu bị hỏng).',
-            );
+        // Thiếu key `nodes` (hoặc `snapshot` chính nó null/undefined) -- snapshot này không nói
+        // gì về Node, KHÔNG có gì để khôi phục -- dữ liệu hỏng/trống thực sự. Throw ngay, KHÔNG
+        // mutate gì (chưa đọc currentNodes nào ở đây).
+        if (!hasNodesKey) {
+            throw new BadRequestException('Phiên bản này không có dữ liệu Node để khôi phục (snapshot trống hoặc dữ liệu bị hỏng).');
         }
 
-        const snapshotNodes = (hasNodesKey ? version.snapshot!.nodes : []) as Partial<NodeEntity>[];
-        const snapshotSections = (hasSectionsKey ? version.snapshot!.sections : []) as Partial<SectionEntity>[];
+        const snapshotNodes = version.snapshot!.nodes as Partial<NodeEntity>[];
 
         let rootNodeNewId: string | undefined;
 
@@ -167,22 +138,6 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
                     // KHÔNG gọi lại cho từng con (đã bị xoá bởi lượt gọi ở node gốc).
                     await this.nodeService.deleteSubtree(node.id);
                 }
-            }
-        }
-
-        // ---- Section: chỉ chạy nếu snapshot có key `sections` (bất kể rỗng hay không) ----
-        if (hasSectionsKey) {
-            const currentSections = await this.sectionService.findByCondition({ where: { pageId: version.pageId } });
-
-            // Finding 2 fix (giữ nguyên): khôi phục lại Section TỪ snapshot -- Section vẫn là hệ
-            // render sống song song Node trong giai đoạn cutover này (xoá Section là 1 milestone
-            // RIÊNG, sau này) -- tạo mới trước, xoá cũ sau, cùng nguyên tắc an toàn với Node ở trên.
-            for (const section of snapshotSections) {
-                const { id: _id, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = section as any;
-                await this.sectionService.create({ ...rest, pageId: version.pageId });
-            }
-            for (const section of currentSections) {
-                await this.sectionService.deleteById(section.id);
             }
         }
 
