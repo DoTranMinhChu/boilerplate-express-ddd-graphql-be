@@ -2,7 +2,6 @@ import { InputType, ObjectType, Field } from '@/core/shared/decorators/graphQL.d
 import { EPageType, EPageStatus } from '@/modules/page/application/enums/page.enum';
 import { SeoInput, SeoType } from '@/core/shared/dto/seo.dto';
 import { PageEntity } from '@/modules/page/domain/entities/page.entity';
-import { SectionEntity } from '@/modules/section/domain/entities/section.entity';
 import { ContentEntryEntity } from '@/modules/contentEntry/domain/entities/contentEntry.entity';
 import { HeaderPresetEntity } from '@/modules/headerPreset/domain/entities/headerPreset.entity';
 import { FooterPresetEntity } from '@/modules/footerPreset/domain/entities/footerPreset.entity';
@@ -127,7 +126,6 @@ export class PageTranslationType {
 @ObjectType('PageResolverResult')
 export class PageResolverResultType {
     @Field({ type: PageEntity }) page!: PageEntity;
-    @Field({ type: [SectionEntity] }) sections!: SectionEntity[];
     @Field({ type: [NodeEntity] }) nodes!: NodeEntity[];
     @Field({ type: SeoType }) seo!: SeoType;
     @Field({ type: ContentEntryEntity, nullable: true }) entry?: ContentEntryEntity;

@@ -6,7 +6,6 @@ import { EPageStatus, EPageType } from '@/modules/page/application/enums/page.en
 import { assertValidPagePath, matchPathPattern, normalizePagePath } from '@/core/shared/utils/slug.util';
 import { RedirectService } from './redirect.service';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
-import { SectionRepository } from '@/modules/section/infrastructure/persistence/section.repository';
 import { SiteLocaleSettingsService } from '@/modules/siteSettings/application/services/siteLocaleSettings.service';
 import { NodeService } from '@/modules/node/application/services/node.service';
 import { DeepPartial, In, Like } from 'typeorm';
@@ -16,7 +15,6 @@ export class PageService extends BaseService<PageEntity> {
         private readonly pageRepository = new PageRepository(),
         private readonly redirectService = new RedirectService(),
         private readonly pageVersionRepository = new PageVersionRepository(),
-        private readonly sectionRepository = new SectionRepository(),
         private readonly siteLocaleSettingsService = new SiteLocaleSettingsService(),
         private readonly nodeService = new NodeService(),
     ) {
@@ -105,13 +103,9 @@ export class PageService extends BaseService<PageEntity> {
         return this.updateById(page.id, { rootNodeId: rootNode.id } as DeepPartial<PageEntity>);
     }
 
-    /**
-     * "+ Thêm bản dịch" (Phase 3 mục 3) — nhân bản Page (+ toàn bộ Section con) sang 1 locale mới
-     * trong CÙNG nhóm dịch (translationGroupId giữ nguyên, KHÔNG sinh nhóm mới). Path bản dịch tự
-     * thêm prefix "/{locale}" trừ khi locale đích là defaultLocale (mục 14 xem Task 14 — mọi locale
-     * KHÁC defaultLocale đều có prefix, defaultLocale giữ path gốc không prefix). Bản dịch mới LUÔN
-     * bắt đầu Draft — admin tự dịch nội dung xong mới publish, không lộ ra ngoài khi chưa hoàn tất.
-     */
+    /** Tạo bản dịch (translation) của 1 Page sang locale khác — nhân bản Page (+ toàn bộ cây
+     * Node con qua rootNodeId, KHÔNG nhân bản Node con thật — chỉ tạo 1 root Node rỗng mới,
+     * giữ nguyên translationGroupId để nhóm các bản dịch lại với nhau). */
     async createTranslation(pageId: string, locale: string): Promise<PageEntity> {
         const source = await this.pageRepository.findById(pageId);
         if (!source) throw new NotFoundException('Không tìm thấy page.');
@@ -135,8 +129,8 @@ export class PageService extends BaseService<PageEntity> {
             // Important #2 fix (Task 16 review): clone thêm 5 field page-level còn thiếu — thiếu
             // headerPresetId/footerPresetId khiến bản dịch âm thầm rơi về preset MẶC ĐỊNH (khác
             // preset riêng của bản gốc nếu có), thiếu style làm mất nền/font toàn trang, và thiếu
-            // seoFieldMapping làm SEO động của mục δ ngừng hoạt động trên MỌI bản dịch dù Section
-            // (đã clone đủ ở dưới) vẫn còn nguyên cấu hình Block CONTENT_DETAIL. `seo` (field SEO
+            // seoFieldMapping làm SEO động của mục δ ngừng hoạt động trên MỌI bản dịch dù Page vẫn
+            // còn nguyên cấu hình Block CONTENT_DETAIL. `seo` (field SEO
             // TĨNH) vẫn CỐ Ý KHÔNG clone — bản dịch cần SEO riêng theo ngôn ngữ, không dùng chung
             // bản gốc — giữ nguyên quyết định gốc, không đụng.
             headerPresetId: source.headerPresetId,
@@ -150,25 +144,6 @@ export class PageService extends BaseService<PageEntity> {
             // Chi tiết đầy đủ. Clone thẳng, giống mọi field page-level khác ở trên.
             dataBinding: source.dataBinding,
         });
-
-        const sourceSections = await this.sectionRepository.findByCondition({ where: { pageId: source.id } });
-        for (const s of sourceSections) {
-            await this.sectionRepository.create({
-                pageId: newPage.id,
-                type: s.type,
-                order: s.order,
-                enabled: s.enabled,
-                content: s.content,
-                style: s.style,
-                animation: s.animation,
-                dataSource: s.dataSource,
-                fieldMapping: s.fieldMapping,
-                visibilityRules: s.visibilityRules,
-                responsiveSettings: s.responsiveSettings,
-                layoutPreset: s.layoutPreset,
-                theme: s.theme,
-            });
-        }
 
         // Final whole-branch review Finding 4 (Important): Task 3 làm `createPage()` LUÔN tạo root
         // Node ngay lúc tạo Page -- nhưng `createTranslation()` gọi `this.create(...)` trực tiếp
@@ -201,17 +176,8 @@ export class PageService extends BaseService<PageEntity> {
         return updated;
     }
 
-    /**
-     * Publish: cập nhật status + tạo PageVersion snapshot (page + sections + nodes đã resolve sẵn
-     * ở resolver).
-     *
-     * Final whole-branch review Finding 2 (Important, plan-level): Section vẫn là hệ render SỐNG
-     * trong suốt M1/M2 (gỡ Section là 1 milestone RIÊNG, sau này) — Task 4 đổi snapshot sang chỉ
-     * còn `{page, nodes}` khiến "Khôi phục" âm thầm KHÔNG còn tác dụng gì lên nội dung THẬT đang
-     * hiển thị công khai (Section), phá vỡ triết lý cộng-thêm (additive) dùng xuyên suốt milestone
-     * này. Sửa: snapshot cả 2 -- `sectionsSnapshot` VÀ `nodesSnapshot` -- không thay thế nhau.
-     */
-    async publish(id: string, sectionsSnapshot: any[], nodesSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
+    // PageVersion.snapshot lưu {page, nodes} — Node là hệ page-building duy nhất kể từ Phase 0 M3b.
+    async publish(id: string, nodesSnapshot: any[], publishedBy?: string, label?: string): Promise<PageEntity> {
         const page = await this.pageRepository.findById(id);
         if (!page) throw new NotFoundException('Không tìm thấy page.');
 
@@ -220,7 +186,7 @@ export class PageService extends BaseService<PageEntity> {
 
         await this.pageVersionRepository.create({
             pageId: id,
-            snapshot: { page: updated, sections: sectionsSnapshot, nodes: nodesSnapshot },
+            snapshot: { page: updated, nodes: nodesSnapshot },
             publishedBy,
             label,
         });

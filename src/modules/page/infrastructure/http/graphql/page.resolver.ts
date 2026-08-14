@@ -11,7 +11,6 @@ import { EPermission } from '@/modules/permission/enums/permission.enum';
 import { PageEntity } from '@/modules/page/domain/entities/page.entity';
 import { PageService } from '@/modules/page/application/services/page.service';
 import { CreatePageInput, UpdatePageInput, PageResolverResultType, SitemapUrlType, DetailPathBindingType, PageTranslationType } from '@/modules/page/application/dto/page.dto';
-import { SectionService } from '@/modules/section/application/services/section.service';
 import { ContentEntryService } from '@/modules/contentEntry/application/services/contentEntry.service';
 import { ContentTypeService } from '@/modules/contentType/application/services/contentType.service';
 import { HeaderPresetService } from '@/modules/headerPreset/application/services/headerPreset.service';
@@ -32,7 +31,6 @@ const STAFF_ROLES = Object.values(ERole);
 @Resolver(PageEntity)
 export class PageResolver extends BaseGraphQLResolver<PageEntity> {
     private pageService: PageService;
-    private sectionService = new SectionService();
     private contentEntryService = new ContentEntryService();
     private contentTypeService = new ContentTypeService();
     private headerPresetService = new HeaderPresetService();
@@ -89,14 +87,12 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         const exactMatch = await this.pageService.findByExactPath(path, preview);
         if (exactMatch) {
             const { page, locale } = exactMatch;
-            const [sections, nodes, { header, footer }] = await Promise.all([
-                this.sectionService.findByPage(page.id),
+            const [nodes, { header, footer }] = await Promise.all([
                 this.nodeService.findByPage(page.id),
                 this.resolveHeaderFooter(page),
             ]);
             return {
                 page,
-                sections,
                 nodes,
                 seo: { ...page.seo },
                 header,
@@ -108,14 +104,12 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         const paramMatch = await this.pageService.findByParamPattern(path, preview);
         if (paramMatch) {
             const { page, params, locale } = paramMatch;
-            const [sections, nodes, { header, footer }] = await Promise.all([
-                this.sectionService.findByPage(page.id),
+            const [nodes, { header, footer }] = await Promise.all([
                 this.nodeService.findByPage(page.id),
                 this.resolveHeaderFooter(page),
             ]);
             return {
                 page,
-                sections,
                 nodes,
                 seo: { ...page.seo },
                 params,
@@ -361,16 +355,10 @@ export class PageResolver extends BaseGraphQLResolver<PageEntity> {
         @Args('label', { type: String }) label: string | undefined,
         @GQLCurrentUser() account: IAccount,
     ) {
-        // Final whole-branch review Finding 2 (Important, plan-level): Section vẫn là hệ render
-        // SỐNG song song Node trong suốt M1/M2 (gỡ Section là 1 milestone RIÊNG, sau này) --
-        // publish() phải snapshot CẢ 2, không chỉ Node, để "Khôi phục" còn có tác dụng lên nội
-        // dung THẬT đang hiển thị công khai. Khôi phục lại đúng cách gọi `sectionService` trước
-        // Task 4 (xem git history của file này ngay trước commit đổi snapshot sang chỉ-Node).
-        const [sections, nodes] = await Promise.all([
-            this.sectionService.findByCondition({ where: { pageId: id }, order: { order: 'ASC' } as any }),
-            this.nodeService.findByPage(id),
-        ]);
-        return this.pageService.publish(id, sections, nodes, account?.id, label);
+        // Node là hệ page-building duy nhất kể từ Phase 0 M3b — publish() snapshot Node đã resolve
+        // sẵn ở đây (Section không còn tồn tại để snapshot).
+        const nodes = await this.nodeService.findByPage(id);
+        return this.pageService.publish(id, nodes, account?.id, label);
     }
 
     @Mutation('unpublishPage', { returnType: PageEntity })

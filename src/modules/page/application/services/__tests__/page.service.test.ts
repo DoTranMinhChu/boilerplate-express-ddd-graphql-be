@@ -10,21 +10,19 @@ function makeService(repoOverrides: Partial<Record<string, any>> = {}) {
     };
     const redirectService = { recordPathChange: jest.fn(async () => undefined) };
     const pageVersionRepository = { create: jest.fn() };
-    const sectionRepository = { findByCondition: jest.fn(async () => []) };
     const siteLocaleSettingsService = { getSettings: jest.fn(async () => ({ defaultLocale: 'vi', enabledLocales: ['vi'] })) };
     const service = new PageService(
         pageRepository as any,
         redirectService as any,
         pageVersionRepository as any,
-        sectionRepository as any,
         siteLocaleSettingsService as any,
     );
-    return { service, pageRepository, sectionRepository };
+    return { service, pageRepository };
 }
 
 describe('PageService.findDetailBinding (Phase 0 M1 — đọc Page.dataBinding)', () => {
-    it('trả về path + bindings từ Page có dataBinding.mode=detail khớp contentTypeId, KHÔNG đụng SectionRepository', async () => {
-        const { service, sectionRepository } = makeService({
+    it('trả về path + bindings từ Page có dataBinding.mode=detail khớp contentTypeId', async () => {
+        const { service } = makeService({
             findByCondition: jest.fn(async () => [
                 {
                     id: 'page-1',
@@ -43,7 +41,6 @@ describe('PageService.findDetailBinding (Phase 0 M1 — đọc Page.dataBinding)
         const result = await service.findDetailBinding('ct-bai-viet', 'vi');
 
         expect(result).toEqual({ path: '/blog/:slug', bindings: [{ paramName: 'slug', fieldKey: 'slug' }] });
-        expect(sectionRepository.findByCondition).not.toHaveBeenCalled();
     });
 
     it('bỏ qua Page có filter không phải pathParam (giữ đúng guard cũ)', async () => {
@@ -340,7 +337,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
 
     it('createPage: path bắt đầu bằng locale đã enable (khác defaultLocale) -- throw ConflictException, KHÔNG gọi create', async () => {
         const fakePageRepo = { findOneByCondition: jest.fn(async () => null), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'EN', path: '/en' })).rejects.toThrow(/mã ngôn ngữ đã kích hoạt/);
         expect(fakePageRepo.create).not.toHaveBeenCalled();
@@ -348,7 +345,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
 
     it('createPage: path con của locale đã enable (vd "/en/abc") -- vẫn bị chặn', async () => {
         const fakePageRepo = { findOneByCondition: jest.fn(async () => null), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'EN', path: '/en/abc' })).rejects.toThrow(/mã ngôn ngữ đã kích hoạt/);
     });
@@ -362,7 +359,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'VI', path: '/vi' })).resolves.toBeDefined();
         expect(fakePageRepo.create).toHaveBeenCalled();
@@ -375,7 +372,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'DE', path: '/de' })).resolves.toBeDefined();
         expect(fakePageRepo.create).toHaveBeenCalled();
@@ -388,7 +385,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'Giới thiệu', path: '/gioi-thieu' })).resolves.toBeDefined();
     });
@@ -404,7 +401,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'EN special', path: '/en', locale: 'en' })).resolves.toBeDefined();
         expect(fakePageRepo.create).toHaveBeenCalled();
@@ -412,7 +409,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
 
     it('createPage: path bắt đầu bằng locale KHÁC data.locale của chính Page đang tạo -- VẪN bị chặn (shadow thật)', async () => {
         const fakePageRepo = { findOneByCondition: jest.fn(async () => null), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any, makeFakeNodeService() as any);
 
         await expect(service.createPage({ internalName: 'VI nhưng path /en', path: '/en', locale: 'vi' })).rejects.toThrow(/mã ngôn ngữ đã kích hoạt/);
         expect(fakePageRepo.create).not.toHaveBeenCalled();
@@ -421,7 +418,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
     it('updatePage: đổi path sang path bắt đầu bằng locale đã enable -- throw ConflictException', async () => {
         const current = { id: 'page-1', path: '/gioi-thieu', locale: 'vi' };
         const fakePageRepo = { findById: jest.fn(async () => current), findOneByCondition: jest.fn(async () => null) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
 
         await expect(service.updatePage('page-1', { path: '/en' })).rejects.toThrow(/mã ngôn ngữ đã kích hoạt/);
     });
@@ -434,7 +431,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ ...current, ...data, id: options.where.id })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const service = new PageService(fakePageRepo as any, { recordPathChange: jest.fn() } as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
+        const service = new PageService(fakePageRepo as any, { recordPathChange: jest.fn() } as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
 
         await expect(service.updatePage('page-1', { path: '/en/lien-he' })).resolves.toBeDefined();
     });
@@ -449,7 +446,7 @@ describe('PageService.createPage/updatePage -- chặn path bắt đầu bằng l
             // updateByCondition() cũng gọi invalidateLoaderCache() -> this.repository.entityClassName().
             entityClassName: jest.fn(() => 'Page'),
         };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi', ['vi', 'en']) as any);
 
         await expect(service.updatePage('page-1', { internalName: 'Mới' })).resolves.toBeDefined();
     });
@@ -474,12 +471,8 @@ describe('PageService.createTranslation', () => {
         return { createNode: jest.fn(async () => ({ id: 'node-root-translation' })) };
     }
 
-    it('nhân bản Page + Section sang locale mới, giữ translationGroupId, VÀ tạo root Node cho bản dịch mới (Finding 4)', async () => {
+    it('nhân bản Page sang locale mới, giữ translationGroupId, VÀ tạo root Node cho bản dịch mới (Finding 4)', async () => {
         const source = makeSourcePage();
-        const sections = [
-            { id: 'sec-1', pageId: 'page-1', type: 'hero', order: 0, enabled: true, content: { a: 1 }, style: { theme: 'dark' }, animation: [{ target: 'x' }], dataSource: { mode: 'manual' }, fieldMapping: { slot: 'k' }, visibilityRules: { desktop: true }, responsiveSettings: { spacing: 'md' }, layoutPreset: 'default', theme: 'light' },
-            { id: 'sec-2', pageId: 'page-1', type: 'text', order: 1, enabled: false, content: { b: 2 }, style: {}, animation: [], dataSource: undefined, fieldMapping: undefined, visibilityRules: undefined, responsiveSettings: undefined, layoutPreset: undefined, theme: undefined },
-        ];
         let createdNewPage: any;
         const fakePageRepo = {
             findById: jest.fn(async () => source),
@@ -493,14 +486,10 @@ describe('PageService.createTranslation', () => {
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ ...createdNewPage, ...data, id: options.where.id })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const fakeSectionRepo = {
-            findByCondition: jest.fn(async () => sections),
-            create: jest.fn(async (data: any) => ({ id: 'new-sec', ...data })),
-        };
         const fakeSiteLocaleSettingsService = makeSiteLocaleSettingsService('vi');
         const fakeNodeService = makeFakeNodeService();
 
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, fakeSiteLocaleSettingsService as any, fakeNodeService as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSiteLocaleSettingsService as any, fakeNodeService as any);
         const result = await service.createTranslation('page-1', 'en');
 
         expect(result.translationGroupId).toBe('group-1');
@@ -508,15 +497,6 @@ describe('PageService.createTranslation', () => {
         expect(fakePageRepo.create).toHaveBeenCalledWith(expect.objectContaining({
             path: '/en/gioi-thieu', translationGroupId: 'group-1', locale: 'en', status: 'DRAFT',
         }), undefined);
-        expect(fakeSectionRepo.create).toHaveBeenCalledTimes(2);
-        expect(fakeSectionRepo.create).toHaveBeenCalledWith(expect.objectContaining({
-            pageId: 'page-2', type: 'hero', order: 0, enabled: true, content: { a: 1 }, style: { theme: 'dark' },
-            animation: [{ target: 'x' }], dataSource: { mode: 'manual' }, fieldMapping: { slot: 'k' },
-            visibilityRules: { desktop: true }, responsiveSettings: { spacing: 'md' }, layoutPreset: 'default', theme: 'light',
-        }));
-        expect(fakeSectionRepo.create).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-2', type: 'text', order: 1, enabled: false }));
-        // Finding 4: root Node PHẢI được tạo cho Page dịch mới, và rootNodeId PHẢI được repoint --
-        // cùng bất biến Task 3 (createPage()), không phân biệt đường tạo Page nào.
         expect(fakeNodeService.createNode).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-2', parentId: undefined, type: 'frame' }));
         expect(result.rootNodeId).toBe('node-root-translation');
     });
@@ -544,8 +524,7 @@ describe('PageService.createTranslation', () => {
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => []), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any, makeFakeNodeService() as any);
 
         await service.createTranslation('page-1', 'en');
 
@@ -570,8 +549,7 @@ describe('PageService.createTranslation', () => {
             updateOneByCondition: jest.fn(async (options: any, data: any) => ({ id: options.where.id, ...data })),
             entityClassName: jest.fn(() => 'Page'),
         };
-        const fakeSectionRepo = { findByCondition: jest.fn(async () => []), create: jest.fn() };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, fakeSectionRepo as any, makeSiteLocaleSettingsService('vi') as any, makeFakeNodeService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService('vi') as any, makeFakeNodeService() as any);
         await service.createTranslation('page-1', 'vi');
         expect(fakePageRepo.create).toHaveBeenCalledWith(expect.objectContaining({ path: '/gioi-thieu', locale: 'vi' }), undefined);
     });
@@ -582,20 +560,20 @@ describe('PageService.createTranslation', () => {
             findById: jest.fn(async () => source),
             findOneByCondition: jest.fn(async () => ({ id: 'existing-en' })),
         };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, makeSiteLocaleSettingsService() as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, makeSiteLocaleSettingsService() as any);
         await expect(service.createTranslation('page-1', 'en')).rejects.toThrow(/đã có bản locale/);
     });
 
     it('throw ConflictException khi locale truyền vào == locale hiện tại của page', async () => {
         const source = makeSourcePage({ locale: 'en' });
         const fakePageRepo = { findById: jest.fn(async () => source) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, undefined as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any);
         await expect(service.createTranslation('page-1', 'en')).rejects.toThrow(/đã ở locale/);
     });
 
     it('throw NotFoundException khi page không tồn tại', async () => {
         const fakePageRepo = { findById: jest.fn(async () => null) };
-        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any, undefined as any);
+        const service = new PageService(fakePageRepo as any, undefined as any, undefined as any, undefined as any);
         await expect(service.createTranslation('missing', 'en')).rejects.toThrow(/Không tìm thấy page/);
     });
 });
@@ -614,7 +592,6 @@ describe('PageService.createPage (Phase 0 M1 Task 3 — auto-create root Node)',
             pageRepository as any,
             { recordPathChange: jest.fn() } as any,
             { create: jest.fn() } as any,
-            { findByCondition: jest.fn(async () => []) } as any,
             siteLocaleSettingsService as any,
             nodeService as any,
         );
@@ -668,11 +645,8 @@ describe('PageService.findTranslations', () => {
     });
 });
 
-// Final whole-branch review Finding 2 (Important, plan-level) + Minor "untyped/untested publish()
-// snapshot shape": Section vẫn là hệ render SỐNG trong suốt M1/M2 -- publish() phải snapshot CẢ
-// sections VÀ nodes, không phải chỉ nodes (Task 4 đã âm thầm bỏ mất sections khỏi snapshot).
-describe('PageService.publish (Finding 2 — snapshot phải có ĐỦ {page, sections, nodes})', () => {
-    it('PageVersion.snapshot được tạo với ĐÚNG shape {page, sections, nodes}, không thiếu key nào', async () => {
+describe('PageService.publish (snapshot shape {page, nodes} — Section removed in M3b)', () => {
+    it('PageVersion.snapshot được tạo với ĐÚNG shape {page, nodes}, không thiếu key nào', async () => {
         const page = { id: 'page-1', path: '/gioi-thieu', status: 'DRAFT' };
         const updatedPage = { ...page, status: 'PUBLISHED', publishedAt: new Date('2026-08-12') };
         const fakePageRepo = {
@@ -681,19 +655,18 @@ describe('PageService.publish (Finding 2 — snapshot phải có ĐỦ {page, se
             entityClassName: jest.fn(() => 'Page'),
         };
         const fakePageVersionRepo = { create: jest.fn(async (data: any) => ({ id: 'v1', ...data })) };
-        const sectionsSnapshot = [{ id: 'sec-1', type: 'hero' }];
         const nodesSnapshot = [{ id: 'node-1', type: 'frame' }];
         const service = new PageService(fakePageRepo as any, undefined as any, fakePageVersionRepo as any);
 
-        await service.publish('page-1', sectionsSnapshot, nodesSnapshot, 'account-1', 'v1 label');
+        await service.publish('page-1', nodesSnapshot, 'account-1', 'v1 label');
 
         expect(fakePageVersionRepo.create).toHaveBeenCalledWith(expect.objectContaining({
             pageId: 'page-1',
-            snapshot: expect.objectContaining({ sections: sectionsSnapshot, nodes: nodesSnapshot }),
+            snapshot: expect.objectContaining({ nodes: nodesSnapshot }),
             publishedBy: 'account-1',
             label: 'v1 label',
         }));
         const snapshotArg = fakePageVersionRepo.create.mock.calls[0][0].snapshot;
-        expect(Object.keys(snapshotArg).sort()).toEqual(['nodes', 'page', 'sections']);
+        expect(Object.keys(snapshotArg).sort()).toEqual(['nodes', 'page']);
     });
 });
