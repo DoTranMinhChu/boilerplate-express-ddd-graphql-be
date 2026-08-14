@@ -42,7 +42,19 @@ class FakeRepo {
         this.updated.push({ where, data });
         this.rows.filter(r => Object.entries(where).every(([k, v]) => r[k] === v)).forEach(r => Object.assign(r, data));
     }
-    async softDelete(id: string) { this.softDeleted.push(id); }
+    // DeletionService's leaf+SOFT bulk optimization calls this with a criteria object
+    // (matching real TypeORM's Repository.softDelete(FindOptionsWhere) bulk-update API),
+    // not just a single id — resolve criteria against `this.rows` the same way `update()`
+    // already does, instead of pushing the raw criteria object into `softDeleted`.
+    async softDelete(idOrWhere: string | Record<string, any>) {
+        if (typeof idOrWhere === 'string') {
+            this.softDeleted.push(idOrWhere);
+            return;
+        }
+        const matching = this.rows.filter(r =>
+            Object.entries(idOrWhere).every(([k, v]) => r[k] === v) && !this.softDeleted.includes(r.id));
+        this.softDeleted.push(...matching.map(r => r.id));
+    }
     async delete(id: string) { this.hardDeleted.push(id); this.rows = this.rows.filter(r => r.id !== id); }
 }
 
