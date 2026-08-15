@@ -4,7 +4,7 @@ import { ObjectType, Field } from '@/core/shared/decorators/graphQL.decorators';
  * Kết quả tra cứu "đang được dùng ở đâu" cho 1 Content Entry (design doc
  * 2026-08-08-visibility-rules-simplify-and-usage-lookup, mục Task 2). Content
  * Type/Entry là dữ liệu thuần — không tự biết trang/khối nào đang dùng nó, nên
- * đây là 1 tra cứu THẬT quét mọi trang PUBLISHED + section, đối chiếu dataSource
+ * đây là 1 tra cứu THẬT quét mọi trang PUBLISHED, đối chiếu dataSource
  * của từng khối (đọc lại đúng cách resolveCmsPageProps.ts phía FE public làm),
  * thay cho việc suy đoán 1 URL duy nhất như nút "Xem trang" cũ.
  */
@@ -13,11 +13,8 @@ export class ContentEntryUsageLocationType {
     @Field({ type: String }) pageId!: string;
     @Field({ type: String }) pageLabel!: string;
     @Field({ type: String }) pagePath!: string;
-    @Field({ type: String, nullable: true }) sectionId?: string;
-    @Field({ type: String, nullable: true }) sectionType?: string;
-    /** Phase 0 M1 Task 6: nhánh Node/Page.dataBinding mới — CẠNH sectionId/sectionType cũ, không
-     * thay thế (kết quả từ Node luôn có nodeId/nodeType, KHÔNG có sectionId/sectionType). `sectionType`
-     * đổi thành nullable ở đây để khớp: 1 kết quả từ Node không có giá trị nào cho field này. */
+    /** Phase 0 M1 Task 6: nhánh Node/Page.dataBinding — duy nhất còn lại sau khi Section bị gỡ
+     * (Phase 0 M3b): mọi kết quả đều từ Node, luôn có nodeId/nodeType. */
     @Field({ type: String, nullable: true }) nodeId?: string;
     @Field({ type: String, nullable: true }) nodeType?: string;
     /** 'detail' (trang Chi tiết gắn Content Type, entry ĐANG hiển thị công khai) |
