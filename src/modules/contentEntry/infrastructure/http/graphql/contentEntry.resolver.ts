@@ -54,6 +54,9 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
         @Args('contentTypeId') contentTypeId: string,
         @Args('ids', { type: [String] }) ids: string[] | undefined,
         @Args('limit', { type: Number }) limit: number | undefined,
+        // Node-level data binding (2026-08-17) — offset for a Table/Card-List Node's Prev/Next
+        // control. Optional, `undefined` for every existing (unpaginated) caller.
+        @Args('offset', { type: Number }) offset: number | undefined,
         @Args('sortField', { type: String }) sortField: string | undefined,
         @Args('sortDirection', { type: String }) sortDirection: 'ASC' | 'DESC' | undefined,
         @Args('filters', { type: [ContentEntryFieldFilterInput] }) filters: ContentEntryFieldFilterInput[] | undefined,
@@ -73,6 +76,25 @@ export class ContentEntryResolver extends BaseGraphQLResolver<ContentEntryEntity
             // trước Phase 2b không có cap nào ở đây, hợp nhất qua findPublicEntries vô tình thêm
             // cap 12 mặc định cho CẢ 2 mode). Mode "dynamic" (không có ids) vẫn mặc định 12 như cũ.
             limit: limit ?? (ids?.length ? undefined : 12),
+            offset,
+            locale,
+        });
+    }
+
+    /** Total-row companion to `getPublicContentEntries` for paginated Table/Card-List Nodes — a
+     * SIBLING query (not a change to `getPublicContentEntries`'s return shape) so the 4 other
+     * call sites in the FE's `nodeDataBinding.ts` (related/backlink/mixed/manual-ids) never see a
+     * response-shape change. */
+    @Query('getPublicContentEntriesCount', { returnType: Number })
+    @GQLPublic()
+    async getPublicContentEntriesCount(
+        @Args('contentTypeId') contentTypeId: string,
+        @Args('filters', { type: [ContentEntryFieldFilterInput] }) filters: ContentEntryFieldFilterInput[] | undefined,
+        @Args('locale', { type: String }) locale: string | undefined,
+    ) {
+        return this.contentEntryService.countPublicEntries({
+            contentTypeId,
+            filters: (filters || []).map((f) => ({ field: f.field, operator: f.operator || '$eq', value: f.value })),
             locale,
         });
     }

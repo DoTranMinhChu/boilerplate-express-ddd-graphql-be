@@ -320,6 +320,10 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
         filters: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
         limit?: number;
+        /** Node-level data binding (2026-08-17) — see `ContentEntryRepository.findPublicList`'s
+         * matching doc comment. Optional, `undefined` unless a caller (Table/Card-List Node's
+         * `repeat.pagination`) explicitly opts in. */
+        offset?: number;
         locale?: string;
     }): Promise<ContentEntryEntity[]> {
         const contentType = await this.contentTypeService.findById(params.contentTypeId);
@@ -341,6 +345,7 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             visibilityExclusions,
             sort: params.sort,
             limit: params.limit,
+            offset: params.offset,
             locale: params.ids?.length ? undefined : params.locale,
         });
 
@@ -349,5 +354,19 @@ export class ContentEntryService extends BaseService<ContentEntryEntity> {
             return params.ids.map((id) => byId.get(id)).filter((e): e is ContentEntryEntity => !!e);
         }
         return entries;
+    }
+
+    /** Total matching rows for a Table/Card-List Node's pagination, ignoring `limit`/`offset` —
+     * mirrors `findPublicEntries`'s content-type-exists guard and visibility-exclusion resolve. */
+    async countPublicEntries(params: { contentTypeId: string; filters: FieldCondition[]; locale?: string }): Promise<number> {
+        const contentType = await this.contentTypeService.findById(params.contentTypeId);
+        if (!contentType) return 0;
+        const visibilityExclusions = await this.resolveVisibilityExclusions(params.contentTypeId);
+        return this.contentEntryRepository.countPublicList({
+            contentTypeId: params.contentTypeId,
+            filters: params.filters,
+            visibilityExclusions,
+            locale: params.locale,
+        });
     }
 }

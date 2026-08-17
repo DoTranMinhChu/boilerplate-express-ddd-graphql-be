@@ -350,6 +350,44 @@ describe('ContentEntryService — field unique + autoGenerateFrom (mục α)', (
     });
 });
 
+describe('ContentEntryService.findPublicEntries — offset (node-level data binding pagination)', () => {
+    it('truyền offset xuống findPublicList nguyên vẹn', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12, offset: 24 });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ limit: 12, offset: 24 }));
+    });
+
+    it('không truyền offset -> undefined xuống repository (caller cũ không bị ảnh hưởng)', async () => {
+        const { service, fakeRepo } = makeServiceWithVisibility();
+        await service.findPublicEntries({ contentTypeId: 'ct-restricted', filters: [], limit: 12 });
+        expect(fakeRepo.findPublicList).toHaveBeenCalledWith(expect.objectContaining({ offset: undefined }));
+    });
+});
+
+describe('ContentEntryService.countPublicEntries', () => {
+    it('trả về 0, không query khi content type không tồn tại', async () => {
+        const fakeContentTypeService = { findById: jest.fn(async () => null) };
+        const fakeRepo = { countPublicList: jest.fn(async () => 99) };
+        const service = new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
+        const result = await service.countPublicEntries({ contentTypeId: 'missing', filters: [] });
+        expect(result).toBe(0);
+        expect(fakeRepo.countPublicList).not.toHaveBeenCalled();
+    });
+
+    it('gọi countPublicList kèm visibilityExclusions đã resolve', async () => {
+        const fakeContentTypeService = { findById: jest.fn(async () => RESTRICTED_CONTENT_TYPE) };
+        const fakeRepo = { countPublicList: jest.fn(async () => 42) };
+        const service = new ContentEntryService(fakeRepo as any, fakeContentTypeService as any);
+        const result = await service.countPublicEntries({ contentTypeId: 'ct-restricted', filters: [{ field: 'category', operator: '$eq', value: 'shoes' }] });
+        expect(result).toBe(42);
+        expect(fakeRepo.countPublicList).toHaveBeenCalledWith(expect.objectContaining({
+            contentTypeId: 'ct-restricted',
+            filters: [{ field: 'category', operator: '$eq', value: 'shoes' }],
+            visibilityExclusions: [{ field: 'budget', operator: '$gte', value: 1_000_000_000 }],
+        }));
+    });
+});
+
 describe('ContentEntryService.createTranslation', () => {
     function makeSourceEntry(overrides: Partial<any> = {}) {
         return { id: 'entry-1', contentTypeId: 'ct-1', translationGroupId: 'group-1', locale: 'vi', status: 'PUBLISHED', data: { title: 'Xin chào' }, ...overrides };
