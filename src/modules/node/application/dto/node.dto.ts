@@ -15,6 +15,7 @@ export class CreateNodeInput {
     @Field({ type: GraphQLMixed, nullable: true }) repeat?: Record<string, any>;
     @Field({ type: GraphQLMixed, nullable: true }) visibilityRules?: Record<string, any>;
     @Field({ type: GraphQLMixed, nullable: true }) responsiveOverrides?: Record<string, any>;
+    @Field({ type: GraphQLMixed, nullable: true }) animationRef?: Record<string, any>;
 }
 
 @InputType('UpdateNodeInput')
@@ -29,6 +30,7 @@ export class UpdateNodeInput {
     @Field({ type: GraphQLMixed, nullable: true }) repeat?: Record<string, any>;
     @Field({ type: GraphQLMixed, nullable: true }) visibilityRules?: Record<string, any>;
     @Field({ type: GraphQLMixed, nullable: true }) responsiveOverrides?: Record<string, any>;
+    @Field({ type: GraphQLMixed, nullable: true }) animationRef?: Record<string, any>;
 }
 
 @InputType('ReorderNodeItemInput')
