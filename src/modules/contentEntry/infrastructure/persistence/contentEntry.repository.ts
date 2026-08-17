@@ -183,6 +183,11 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         visibilityExclusions: FieldCondition[];
         sort?: { field: string; direction: 'ASC' | 'DESC' };
         limit?: number;
+        /** Node-level data binding (2026-08-17) — offset-based pagination for a Table/Card-List
+         * Node's Prev/Next control. Optional, applied via `.skip()` only when set — every existing
+         * caller (unpaginated `repeat`, related/backlink/mixed, manual ids) never sends this and
+         * keeps behaving identically. */
+        offset?: number;
         /** Critical #1 fix (Task 16 review): khi có giá trị, CHỈ trả entry CÙNG locale — trước fix
          * này hàm luôn trả entry của MỌI locale trong nhóm dịch trộn lẫn, ORDER BY createdAt DESC
          * khiến bản dịch mới hơn "thắng" bản đúng locale của trang đang xem. Optional (không phải
@@ -210,6 +215,36 @@ export class ContentEntryRepository extends ABaseRepository<ContentEntryEntity> 
         }
 
         if (params.limit !== undefined) qb.take(params.limit);
+        if (params.offset !== undefined) qb.skip(params.offset);
         return qb.getMany();
+    }
+
+    /**
+     * Same WHERE-clause construction as `findPublicList` (visibility exclusions + filters +
+     * ids/excludeIds/locale), but `.getCount()` instead of `.getMany()`/`.take()`/`.skip()` —
+     * used by `getPublicContentEntriesCount` so a paginated Node (Table/Card-List) can compute
+     * total pages without fetching every row. Sort is irrelevant to a COUNT query, intentionally
+     * not accepted here.
+     */
+    async countPublicList(params: {
+        contentTypeId: string;
+        ids?: string[];
+        excludeIds?: string[];
+        filters: FieldCondition[];
+        visibilityExclusions: FieldCondition[];
+        locale?: string;
+    }): Promise<number> {
+        const qb = this.repository.createQueryBuilder('e')
+            .where('e."contentTypeId" = :contentTypeId', { contentTypeId: params.contentTypeId })
+            .andWhere('e.status = :status', { status: EPageStatus.PUBLISHED });
+
+        if (params.ids?.length) qb.andWhere('e.id IN (:...ids)', { ids: params.ids });
+        if (params.excludeIds?.length) qb.andWhere('e.id NOT IN (:...excludeIds)', { excludeIds: params.excludeIds });
+        if (params.locale) qb.andWhere('e.locale = :locale', { locale: params.locale });
+
+        params.visibilityExclusions.forEach((cond, i) => this.applyFieldCondition(qb, 'e', cond, `vis${i}`, true));
+        params.filters.forEach((cond, i) => this.applyFieldCondition(qb, 'e', cond, `flt${i}`, false));
+
+        return qb.getCount();
     }
 }
