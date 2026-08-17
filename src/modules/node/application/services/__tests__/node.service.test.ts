@@ -375,3 +375,32 @@ describe('NodeService — Final review Important #3: depth guard tính cả subt
         await expect(service.moveNode('sub-root', 'n28', 0)).rejects.toThrow(BadRequestException);
     });
 });
+
+describe('NodeService — Phase 4: animationRef pass-through (createNode)', () => {
+    it('createNode giữ nguyên animationRef (AnimationTimeline object) khi tạo node mới', async () => {
+        const { service, fakeRepo } = makeService({ parent: { id: 'parent', pageId: 'p1' } });
+        const animationRef = {
+            keyframes: [{ id: 'kf1', property: 'opacity', to: 1, duration: 0.8 }],
+            trigger: 'onLoad',
+        };
+
+        // order phải truyền tường minh: khi thiếu, createNode() đi qua nhánh transaction
+        // (trxRepo.create/save cục bộ trong service, không phải fakeRepo.create của
+        // repository) để atomically đếm sibling count — nhánh đó không thể assert qua
+        // fakeRepo.create (jest.fn ở scope ngoài). Truyền order tường minh để đi qua
+        // nhánh this.create(data) (BaseService.create -> repository.create) thay vào đó,
+        // đúng nhánh mà fakeRepo.create thực sự được gọi.
+        const result = await service.createNode({ pageId: 'p1', parentId: 'parent', type: 'text', order: 0, animationRef } as any);
+
+        expect(result.animationRef).toEqual(animationRef);
+        expect(fakeRepo.create).toHaveBeenCalledWith(expect.objectContaining({ animationRef }), undefined);
+    });
+
+    it('createNode không tự thêm animationRef khi không truyền (giữ hành vi cũ cho mọi node không dùng animation)', async () => {
+        const { service } = makeService({ parent: { id: 'parent', pageId: 'p1' } });
+
+        const result = await service.createNode({ pageId: 'p1', parentId: 'parent', type: 'text' } as any);
+
+        expect(result.animationRef).toBeUndefined();
+    });
+});

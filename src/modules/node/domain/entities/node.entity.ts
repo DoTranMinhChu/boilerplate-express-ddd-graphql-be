@@ -74,9 +74,19 @@ export class NodeEntity extends BaseEntity {
     @Column({ type: 'jsonb', default: {} })
     responsiveOverrides!: Record<string, any>;
 
-    /** Reserved cho Phase 3 (Animation) — chưa có bảng AnimationTimeline, cột này
-     * chưa được đọc/viết bởi bất kỳ code nào ở Phase 0/1. */
-    @Field({ type: String, nullable: true })
-    @Column({ nullable: true })
-    animationRef?: string;
+    /** Phase 4 (Animation Timeline) — was a dead varchar column (Phase 0/1 comment
+     * called it "Reserved cho Phase 3 (Animation)", a stale numbering from before the
+     * current 5-phase roadmap fixed Phase 3 = Responsive / Phase 4 = Animation). Now a
+     * real jsonb AnimationTimeline object: { keyframes: [...], trigger, scrollStart?,
+     * repeat?, mobileEnabled? } — see animationTimeline.types.ts (FE) for the full
+     * shape. Type change only (same column name) — safe with no data migration, since
+     * every row's value has been NULL from the start (confirmed: no mutation has ever
+     * written this field until this task). No hand-written TypeORM migration file
+     * needed — this table's schema has always evolved via this project's
+     * DB_SYNCHRONIZE=true dev-mode auto-sync (database.config.ts), not migration
+     * files; every prior jsonb field on this entity (responsiveOverrides, repeat,
+     * visibilityRules) was introduced the same way. */
+    @Field({ type: GraphQLMixed, nullable: true })
+    @Column({ type: 'jsonb', nullable: true })
+    animationRef?: Record<string, any>;
 }
