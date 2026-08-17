@@ -58,8 +58,8 @@ describe('transformNodeProps (Canvas Editor v2, Task 18)', () => {
         expect(result.props).toEqual(props);
     });
 
-    it('is a no-op for a node type outside the 4 Group 2 types', () => {
-        const props = { content: { heading: 'x' } };
+    it('is a no-op for a node type outside the 4 Group 2 types, even with a legacy dataSource present', () => {
+        const props = { dataSource: { query: { contentTypeId: 'ct-1' } } };
         expect(transformNodeProps('media-hero', props)).toEqual({ props, repeat: undefined });
     });
 });
