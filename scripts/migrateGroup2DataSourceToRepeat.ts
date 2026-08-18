@@ -8,51 +8,14 @@
 import 'reflect-metadata';
 import { AppDataSource } from '../src/config/database.config';
 import { NodeEntity } from '../src/modules/node/domain/entities/node.entity';
+// The pure transform itself now lives under src/ (final-review Finding 2: PageVersionService's
+// restore path also needs it, and a src/ file can only cleanly import something living under
+// src/ — see that file's header comment for the rootDir/tsc detail). Re-exported here so this
+// script's own test (scripts/__tests__/migrateGroup2DataSourceToRepeat.test.ts) keeps importing
+// it from this same path, unchanged.
+import { transformNodeProps, SLOT_KEYS } from '../src/modules/node/application/services/transformGroup2DataSourceToRepeat';
 
-const SLOT_KEYS: Record<string, string[]> = {
-    'featured-entry': ['image', 'category', 'heading', 'description'],
-    'project-showcase': ['heading', 'image', 'description', 'client', 'year', 'category'],
-    'logo-grid': ['name', 'logo'],
-};
-
-function buildSlots(nodeType: string, fieldMapping: Record<string, string> | undefined): Record<string, string> {
-    const keys = SLOT_KEYS[nodeType] ?? [];
-    const slots: Record<string, string> = {};
-    for (const key of keys) {
-        const value = fieldMapping?.[key];
-        if (value) slots[`${key}Field`] = value;
-    }
-    return slots;
-}
-
-/** Pure transform — no I/O. Returns `{ repeat, props }`: `props` is the node's NEW props object
- * (dataSource/fieldMapping removed, everything else untouched), `repeat` is the new node.repeat
- * value (`undefined` if this node had no legacy dataSource to migrate). */
-export function transformNodeProps(nodeType: string, props: Record<string, any>): { repeat: any; props: Record<string, any> } {
-    const dataSource = props?.dataSource;
-    if (!dataSource) return { repeat: undefined, props };
-
-    if (nodeType === 'mixed-feed') {
-        const { dataSource: _ds, ...rest } = props;
-        return { repeat: { source: 'mixed', sources: dataSource.sources ?? [], limit: dataSource.limit }, props: rest };
-    }
-
-    if (!SLOT_KEYS[nodeType]) return { repeat: undefined, props };
-
-    const { dataSource: _ds, fieldMapping, ...rest } = props;
-    const cardinality = nodeType === 'featured-entry' ? 'one' : 'many';
-    return {
-        repeat: {
-            source: 'own',
-            mode: 'dynamic',
-            cardinality,
-            contentTypeKey: dataSource.query?.contentTypeId,
-            filter: dataSource.genericFilters,
-            limit: dataSource.query?.limit ?? dataSource.limit,
-        },
-        props: { ...rest, slots: buildSlots(nodeType, fieldMapping) },
-    };
-}
+export { transformNodeProps };
 
 async function run() {
     await AppDataSource.initialize();
