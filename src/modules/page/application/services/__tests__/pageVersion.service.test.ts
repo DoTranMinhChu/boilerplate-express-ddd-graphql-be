@@ -177,3 +177,73 @@ describe('PageVersionService.restore — Finding 1 (Critical): snapshot.nodes to
         expect(nodeService.deleteSubtree).toHaveBeenCalledTimes(1);
     });
 });
+
+// Final review Finding 2 (Important): a pre-migration snapshot node (Group 2: FeaturedEntry/
+// ProjectShowcase/LogoGrid/MixedFeed) still carries the OLD props.dataSource/fieldMapping shape.
+// The FE's now-migrated renderers only read node.repeat/node.props.slots, so restoring it as-is
+// would resurrect a node that renders empty. restore() must run every snapshot node through the
+// SAME transformNodeProps the one-off migration script uses before writing it back live.
+describe('PageVersionService.restore — Finding 2 (Important): Group 2 legacy nodes run through transformNodeProps on write-back', () => {
+    it('a snapshot node with legacy props.dataSource is created with repeat + props.slots, dataSource/fieldMapping stripped', async () => {
+        const { service, pageVersionRepository, nodeService } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: {
+                page: { id: 'page-1' },
+                nodes: [
+                    {
+                        id: 'root-old',
+                        pageId: 'page-1',
+                        parentId: null,
+                        order: 0,
+                        type: 'featured-entry',
+                        props: {
+                            content: { eyebrow: 'News' },
+                            dataSource: { mode: 'dynamic', query: { contentTypeId: 'ct-1', limit: 1 } },
+                            fieldMapping: { image: 'img', category: 'cat', heading: 'title', description: 'desc' },
+                        },
+                    },
+                ],
+            },
+        });
+        nodeService.findByPage.mockResolvedValueOnce([]);
+
+        await service.restore('page-1', 'v1');
+
+        expect(nodeService.createNode).toHaveBeenCalledTimes(1);
+        const created = nodeService.createNode.mock.calls[0][0];
+        expect(created.repeat).toEqual({
+            source: 'own',
+            mode: 'dynamic',
+            cardinality: 'one',
+            contentTypeKey: 'ct-1',
+            filter: undefined,
+            entryIds: undefined,
+            sort: undefined,
+            limit: 1,
+        });
+        expect(created.props).toEqual({ content: { eyebrow: 'News' }, slots: { imageField: 'img', categoryField: 'cat', headingField: 'title', descriptionField: 'desc' } });
+        expect(created.props.dataSource).toBeUndefined();
+        expect(created.props.fieldMapping).toBeUndefined();
+    });
+
+    it('a snapshot node WITHOUT a legacy dataSource is restored unchanged (transformNodeProps is a no-op)', async () => {
+        const { service, pageVersionRepository, nodeService } = makeService();
+        pageVersionRepository.findById.mockResolvedValue({
+            id: 'v1',
+            pageId: 'page-1',
+            snapshot: {
+                page: { id: 'page-1' },
+                nodes: [{ id: 'root-old', pageId: 'page-1', parentId: null, order: 0, type: 'frame', props: { heading: 'x' } }],
+            },
+        });
+        nodeService.findByPage.mockResolvedValueOnce([]);
+
+        await service.restore('page-1', 'v1');
+
+        const created = nodeService.createNode.mock.calls[0][0];
+        expect(created.props).toEqual({ heading: 'x' });
+        expect(created.repeat).toBeUndefined();
+    });
+});

@@ -36,5 +36,8 @@ jobs:
       - name: Build (tsc)
         run: npm run build
 
+      - name: Typecheck scripts (tsc)
+        run: npm run typecheck:scripts
+
       - name: Test (jest)
         run: npm test

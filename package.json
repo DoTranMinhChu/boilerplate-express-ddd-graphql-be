@@ -13,6 +13,7 @@
         "migration:run": "ts-node -r tsconfig-paths/register -r dotenv/config ./node_modules/typeorm/cli.js migration:run -d src/config/database.config.ts",
         "migration:revert": "ts-node -r tsconfig-paths/register -r dotenv/config ./node_modules/typeorm/cli.js migration:revert -d src/config/database.config.ts",
         "test": "jest",
+        "typecheck:scripts": "tsc --noEmit -p scripts/tsconfig.json",
         "generate": "node scripts/generateModule.js",
         "create:module": "node scripts/generateModule.js"
     },

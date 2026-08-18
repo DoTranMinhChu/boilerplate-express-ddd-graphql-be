@@ -2,6 +2,7 @@ import { PageVersionEntity } from '../../domain/entities/pageVersion.entity';
 import { PageVersionRepository } from '../../infrastructure/persistence/pageVersion.repository';
 import { NodeService, MAX_NODES_PER_PAGE } from '@/modules/node/application/services/node.service';
 import { NodeEntity } from '@/modules/node/domain/entities/node.entity';
+import { transformNodeProps } from '@/modules/node/application/services/transformGroup2DataSourceToRepeat';
 import { PageRepository } from '../../infrastructure/persistence/page.repository';
 import { BaseService } from '@/core/application/services/base.service';
 import { NotFoundException, BadRequestException } from '@/core/domain/exceptions/appException';
@@ -98,8 +99,20 @@ export class PageVersionService extends BaseService<PageVersionEntity> {
                 if (idx === -1) break; // dữ liệu snapshot lỗi (cha không tồn tại trong chính snapshot) — dừng vòng lặp, xử lý ở guard `pending.length` ngay dưới.
                 const [node] = pending.splice(idx, 1);
                 const { id: oldId, createdAt, updatedAt, deletedAt, pageId: _pageId, ...rest } = node as any;
+
+                // Finding 2 fix (final review): a pre-migration snapshot node still carries the
+                // OLD props.dataSource/fieldMapping shape (Group 2: FeaturedEntry/ProjectShowcase/
+                // LogoGrid/MixedFeed) — the FE's now-migrated renderers only read node.repeat/
+                // node.props.slots, so restoring it as-is would resurrect a node that renders
+                // empty. Run it through the SAME pure transform the one-off migration script uses
+                // (scripts/migrateGroup2DataSourceToRepeat.ts, re-exporting this same function) —
+                // it is already a no-op (`repeat: undefined`) for any node without a legacy
+                // dataSource, so this is safe to apply unconditionally.
+                const { repeat: migratedRepeat, props: migratedProps } = transformNodeProps(rest.type, (rest.props as Record<string, any>) ?? {});
+                const nodeData = migratedRepeat !== undefined ? { ...rest, props: migratedProps, repeat: migratedRepeat } : rest;
+
                 const created = await this.nodeService.createNode({
-                    ...rest,
+                    ...nodeData,
                     pageId,
                     parentId: node.parentId ? oldIdToNewId.get(node.parentId) : undefined,
                 });
