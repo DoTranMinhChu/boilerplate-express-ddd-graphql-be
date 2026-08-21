@@ -60,12 +60,36 @@ export function buildMediaHeroSubtree(oldProps: Record<string, any>): SubtreeTra
     };
 }
 
+/** Named entities common in WYSIWYG-authored HTML (e.g. `&nbsp;` from a rich-text editor's
+ * "non-breaking space" insertion) — decoded so they don't survive as literal escaped text in the
+ * migrated plain-text node. `&nbsp;` decodes to a real space so it doesn't fuse two words
+ * together after tag-stripping already replaced tags with spaces. */
+const HTML_ENTITIES: Record<string, string> = {
+    nbsp: ' ',
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+};
+
+/** Decodes named + numeric HTML entities left behind after `stripHtmlTags` removes markup — the
+ * migrated row's `props` is overwritten wholesale by the runner script, so the original
+ * `railText` is NOT recoverable afterward; this is the only surviving copy, and undecoded
+ * entities like `&nbsp;`/`&amp;` would otherwise ship permanently as literal escaped text. */
+function decodeHtmlEntities(text: string): string {
+    return text
+        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
+        .replace(/&(nbsp|amp|lt|gt|quot|apos);/g, (_, name) => HTML_ENTITIES[name]);
+}
+
 /** Final review Finding 3: strips HTML tags from rich-text content that is being migrated into
  * a plain-text primitive (no generic rich-text primitive exists yet on the FE side). Tags are
  * replaced with a space (not deleted outright) so `<p>A</p><p>B</p>` becomes "A B" rather than
- * "AB", then collapses runs of whitespace and trims the ends. */
+ * "AB", then decodes leftover entities and collapses runs of whitespace before trimming. */
 function stripHtmlTags(html: string): string {
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return decodeHtmlEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
 export function buildLogoGridSubtree(

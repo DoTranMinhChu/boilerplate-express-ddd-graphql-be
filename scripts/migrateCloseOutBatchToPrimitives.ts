@@ -110,7 +110,16 @@ async function run() {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`Migrated ${migrated} of ${rows.length} close-out-batch nodes (${failed} failed — re-run this script to retry them).`);
+    console.log(
+        `Migrated ${migrated} of ${rows.length} close-out-batch nodes` +
+            (failed > 0
+                ? ` (${failed} failed — before re-running, check each failed row's id in the ` +
+                  `logs above for any children already created under it from the failed attempt ` +
+                  `and remove them first; re-running as-is can create a DUPLICATE set of children ` +
+                  `if the failure happened after some, but not all, of a row's children were ` +
+                  `already created).`
+                : '.'),
+    );
     await AppDataSource.destroy();
 }
 

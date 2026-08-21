@@ -53,6 +53,15 @@ describe('buildLogoGridSubtree', () => {
         expect(result.children[1].props?.text).toBe('Đối tác chiến lược');
     });
 
+    it('decodes leftover HTML entities after stripping tags, since the original railText is not recoverable once migrated', () => {
+        const result = buildLogoGridSubtree(
+            { content: { railTitle: 'Khách hàng', railText: '<p>A&nbsp;&amp;&nbsp;B</p><p>&quot;C&quot; &lt;D&gt; &#38; &#x26;</p>' } },
+            null,
+            {},
+        );
+        expect(result.children[1].props?.text).toBe('A & B "C" <D> & &');
+    });
+
     it('handles a missing railText without throwing, producing an empty string', () => {
         const result = buildLogoGridSubtree({ content: { railTitle: 'Khách hàng' } }, null, {});
         expect(result.children[1].props?.text).toBe('');
