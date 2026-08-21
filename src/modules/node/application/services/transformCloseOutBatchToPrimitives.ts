@@ -60,6 +60,14 @@ export function buildMediaHeroSubtree(oldProps: Record<string, any>): SubtreeTra
     };
 }
 
+/** Final review Finding 3: strips HTML tags from rich-text content that is being migrated into
+ * a plain-text primitive (no generic rich-text primitive exists yet on the FE side). Tags are
+ * replaced with a space (not deleted outright) so `<p>A</p><p>B</p>` becomes "A B" rather than
+ * "AB", then collapses runs of whitespace and trims the ends. */
+function stripHtmlTags(html: string): string {
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export function buildLogoGridSubtree(
     oldProps: Record<string, any>,
     oldRepeat: Record<string, any> | null | undefined,
@@ -90,7 +98,13 @@ export function buildLogoGridSubtree(
         updatedRoot: { type: 'frame', props: {}, repeat: null },
         children: [
             { type: 'text', props: { text: content.railTitle } },
-            { type: 'text', props: { text: content.railText } },
+            // Final review Finding 3: `railText` is rich HTML in the original bespoke component
+            // (rendered via a DOMPurify-sanitized dangerouslySetInnerHTML-equivalent), but there
+            // is no generic HTML-capable Text primitive on the FE side yet (only `custom-code`,
+            // out of scope to wire up here). Disclosed, accepted simplification: strip tags at
+            // migration time so the plain-text primitive at least shows readable text instead of
+            // literal escaped markup — rich formatting is lost, plain text content is preserved.
+            { type: 'text', props: { text: stripHtmlTags(content.railText ?? '') } },
             {
                 type: 'frame',
                 layout: { display: 'grid', gridTemplate: 'repeat(4, 1fr)' },
@@ -117,10 +131,27 @@ export function buildFeaturedEntrySubtree(
     const children: NewChildSpec[] = [
         { type: 'image', dataBinding: slots.imageField ? { mode: 'boundField', field: slots.imageField } : undefined },
         { type: 'text', props: { text: content.eyebrow } },
+    ];
+    // Final review Finding 2: the original bespoke component rendered the eyebrow as a
+    // CONCATENATION — static `content.eyebrow` text + a space + the bound `categoryField`
+    // value, two separate visual pieces on one line. `buildFeaturedEntrySubtree` previously
+    // never read `categoryField` at all, and since the runner script overwrites `row.props` to
+    // `{}` in place, that slot mapping would be permanently and unrecoverably lost. Push a
+    // second, conditional Text child bound to `categoryField` right after the static eyebrow
+    // when the old node actually had that slot configured.
+    if (slots.categoryField) {
+        children.push({ type: 'text', dataBinding: { mode: 'boundField', field: slots.categoryField } });
+    }
+    children.push(
         { type: 'text', dataBinding: slots.headingField ? { mode: 'boundField', field: slots.headingField } : undefined },
         { type: 'text', dataBinding: slots.descriptionField ? { mode: 'boundField', field: slots.descriptionField } : undefined },
-        { type: 'button', props: { asLink: true, label: 'Đọc bài viết' } },
-    ];
+        // Final review Finding 1: `asLink` is a Frame-only prop (read by FrameNode.tsx on the
+        // FE side) — ButtonNode.tsx never reads it, so a `button` here would silently become a
+        // dead, non-navigating <button>, permanently losing the entry's detail-page link. Use a
+        // `frame` with `asLink: true` wrapping the label as its own nested Text child instead —
+        // the same nesting mechanism buildLogoGridSubtree already relies on.
+        { type: 'frame', props: { asLink: true }, children: [{ type: 'text', props: { text: 'Đọc bài viết' } }] },
+    );
     return {
         updatedRoot: { type: 'frame', props: {} },
         children,

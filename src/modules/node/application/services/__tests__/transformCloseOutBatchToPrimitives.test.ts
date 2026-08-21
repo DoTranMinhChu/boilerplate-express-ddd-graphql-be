@@ -35,10 +35,27 @@ describe('buildLogoGridSubtree', () => {
         );
         expect(result.updatedRoot.type).toBe('frame');
         expect(result.children[0]).toEqual(expect.objectContaining({ type: 'text', props: expect.objectContaining({ text: 'Khách hàng' }) }));
-        expect(result.children[1]).toEqual(expect.objectContaining({ type: 'text', props: expect.objectContaining({ text: '<p>Đối tác</p>' }) }));
+        // Finding 3: railText is rich HTML with no HTML-capable Text primitive on the FE side —
+        // tags are stripped at migration time so it renders as readable plain text instead of
+        // literal escaped markup.
+        expect(result.children[1]).toEqual(expect.objectContaining({ type: 'text', props: expect.objectContaining({ text: 'Đối tác' }) }));
         const gridFrame = result.children[2];
         expect(gridFrame.type).toBe('frame');
         expect(gridFrame.layout).toEqual(expect.objectContaining({ display: 'grid' }));
+    });
+
+    it('strips HTML tags from railText instead of passing raw markup into the plain-text primitive', () => {
+        const result = buildLogoGridSubtree(
+            { content: { railTitle: 'Khách hàng', railText: '<p>Đối tác</p><p>chiến lược</p>' } },
+            null,
+            {},
+        );
+        expect(result.children[1].props?.text).toBe('Đối tác chiến lược');
+    });
+
+    it('handles a missing railText without throwing, producing an empty string', () => {
+        const result = buildLogoGridSubtree({ content: { railTitle: 'Khách hàng' } }, null, {});
+        expect(result.children[1].props?.text).toBe('');
     });
 
     it('the grid Frame itself carries NO repeat (it is a static display:grid container) — repeat lives on the nested card instead', () => {
@@ -71,18 +88,39 @@ describe('buildLogoGridSubtree', () => {
 });
 
 describe('buildFeaturedEntrySubtree', () => {
-    it('converts the root to a repeat cardinality:one Frame with image/eyebrow/heading/description/button children', () => {
+    it('converts the root to a repeat cardinality:one Frame with image/eyebrow/category/heading/description/asLink-frame children when categoryField is set', () => {
         const result = buildFeaturedEntrySubtree(
             { content: { eyebrow: 'Nổi bật' } },
             { source: 'own', contentTypeKey: 'ct-1', cardinality: 'one', linkToDetail: true },
             { imageField: 'img', categoryField: 'cat', headingField: 'head', descriptionField: 'desc' },
         );
         expect(result.updatedRoot.type).toBe('frame');
-        expect(result.children.map((c: { type: string }) => c.type)).toEqual(['image', 'text', 'text', 'text', 'button']);
+        expect(result.children.map((c: { type: string }) => c.type)).toEqual(['image', 'text', 'text', 'text', 'text', 'frame']);
         expect(result.children[0].dataBinding).toEqual({ mode: 'boundField', field: 'img' });
         expect(result.children[1].props?.text).toBe('Nổi bật'); // eyebrow is static
+        // Finding 2: categoryField must be preserved as a second, bound Text child right after
+        // the static eyebrow — the original rendered them concatenated on one line, and once
+        // the runner script overwrites row.props to {} the slot mapping is unrecoverable.
+        expect(result.children[2].dataBinding).toEqual({ mode: 'boundField', field: 'cat' });
+        expect(result.children[3].dataBinding).toEqual({ mode: 'boundField', field: 'head' });
+        expect(result.children[4].dataBinding).toEqual({ mode: 'boundField', field: 'desc' });
+        // Finding 1: the CTA must be an asLink Frame (ButtonNode.tsx never reads `asLink`, so a
+        // plain `button` here would be a dead, non-navigating control), wrapping the label as
+        // its own nested Text child.
+        const ctaFrame = result.children[5];
+        expect(ctaFrame.props).toEqual({ asLink: true });
+        expect(ctaFrame.children).toEqual([expect.objectContaining({ type: 'text', props: expect.objectContaining({ text: 'Đọc bài viết' }) })]);
+    });
+
+    it('omits the categoryField Text child entirely when the old node had no categoryField slot configured', () => {
+        const result = buildFeaturedEntrySubtree(
+            { content: { eyebrow: 'Nổi bật' } },
+            { source: 'own', contentTypeKey: 'ct-1', cardinality: 'one', linkToDetail: true },
+            { imageField: 'img', headingField: 'head', descriptionField: 'desc' },
+        );
+        expect(result.children.map((c: { type: string }) => c.type)).toEqual(['image', 'text', 'text', 'text', 'frame']);
+        // No bound-category Text — heading immediately follows the static eyebrow.
         expect(result.children[2].dataBinding).toEqual({ mode: 'boundField', field: 'head' });
-        expect(result.children[3].dataBinding).toEqual({ mode: 'boundField', field: 'desc' });
     });
 
     it('does NOT write repeat into updatedRoot.props — repeat is the row\'s own top-level column, left untouched by the runner script when converting FeaturedEntry\'s existing repeat-bearing node in place', () => {

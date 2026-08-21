@@ -55,37 +55,62 @@ async function run() {
         .getMany();
 
     let migrated = 0;
+    let failed = 0;
     for (const row of rows) {
-        let result;
-        if (row.type === 'media-hero') {
-            result = buildMediaHeroSubtree((row.props as Record<string, any>) ?? {});
-        } else if (row.type === 'logo-grid') {
-            result = buildLogoGridSubtree((row.props as Record<string, any>) ?? {}, row.repeat, (row.props as any)?.slots);
-        } else {
-            result = buildFeaturedEntrySubtree((row.props as Record<string, any>) ?? {}, row.repeat, (row.props as any)?.slots);
+        try {
+            let result;
+            if (row.type === 'media-hero') {
+                result = buildMediaHeroSubtree((row.props as Record<string, any>) ?? {});
+            } else if (row.type === 'logo-grid') {
+                result = buildLogoGridSubtree((row.props as Record<string, any>) ?? {}, row.repeat, (row.props as any)?.slots);
+            } else {
+                result = buildFeaturedEntrySubtree((row.props as Record<string, any>) ?? {}, row.repeat, (row.props as any)?.slots);
+            }
+
+            // Fix Medium-High (final review Finding 4): create the new CHILDREN first, while
+            // `row.type`/`row.props` are STILL the old bespoke shape — not yet flipped to
+            // 'frame'. Investigated `NodeService.assertValidParent` (node.service.ts) before
+            // choosing this fix: it only checks that the parent row EXISTS and shares the same
+            // `pageId` — it never inspects the parent's `type` — so creating children under
+            // `row.id` behaves identically whether `row.type` is still the old bespoke type or
+            // already 'frame'; no transaction is required for that reason. What DOES matter is
+            // failure recovery: if `createChildChain` throws partway (e.g. hits
+            // MAX_NODES_PER_PAGE/MAX_TREE_DEPTH), the row must still match this script's own
+            // recovery query (`type IN ('media-hero','logo-grid','featured-entry')`) on a
+            // re-run — which requires `row.type` to not have been reassigned yet. Only reshape
+            // the row itself (type/props/style/repeat) after all children were created
+            // successfully.
+            await createChildChain(nodeService, row.pageId, row.id, result.children);
+
+            row.type = result.updatedRoot.type;
+            row.props = result.updatedRoot.props;
+            if (result.updatedRoot.style) row.style = result.updatedRoot.style;
+            // `repeat` is intentionally checked with 'in', not truthiness: an explicit `null`
+            // (LogoGrid clearing its old self-resolving repeat) must be applied, but an
+            // omitted key (MediaHero/FeaturedEntry, which never set `updatedRoot.repeat` at
+            // all) must leave `row.repeat` completely untouched.
+            // Cast needed: NodeEntity.repeat is typed `Record<string, any> | undefined` (matches
+            // node.service.ts's own `{ rootNodeId: null } as any` precedent) even though the
+            // underlying jsonb column IS nullable — `result.updatedRoot.repeat` can legitimately
+            // be `null` here (LogoGrid clearing its old self-resolving repeat, see the 'in' check
+            // comment above), which the declared TS type alone would reject.
+            if ('repeat' in result.updatedRoot) (row as any).repeat = result.updatedRoot.repeat;
+            await repo.save(row);
+
+            migrated++;
+        } catch (err) {
+            // Fix Medium-High (final review Finding 4): per-row try/catch so one bad row
+            // (e.g. hits MAX_NODES_PER_PAGE/MAX_TREE_DEPTH partway through its children) does
+            // NOT abort the entire batch — the row is left as its original bespoke type (see
+            // the reorder above) and will be picked up again by the recovery query on a re-run.
+            failed++;
+            // eslint-disable-next-line no-console
+            console.error(`Failed to migrate node ${row.id} (type=${row.type}):`, err);
         }
-
-        row.type = result.updatedRoot.type;
-        row.props = result.updatedRoot.props;
-        if (result.updatedRoot.style) row.style = result.updatedRoot.style;
-        // `repeat` is intentionally checked with 'in', not truthiness: an explicit `null`
-        // (LogoGrid clearing its old self-resolving repeat) must be applied, but an
-        // omitted key (MediaHero/FeaturedEntry, which never set `updatedRoot.repeat` at
-        // all) must leave `row.repeat` completely untouched.
-        // Cast needed: NodeEntity.repeat is typed `Record<string, any> | undefined` (matches
-        // node.service.ts's own `{ rootNodeId: null } as any` precedent) even though the
-        // underlying jsonb column IS nullable — `result.updatedRoot.repeat` can legitimately
-        // be `null` here (LogoGrid clearing its old self-resolving repeat, see the 'in' check
-        // comment above), which the declared TS type alone would reject.
-        if ('repeat' in result.updatedRoot) (row as any).repeat = result.updatedRoot.repeat;
-        await repo.save(row);
-
-        await createChildChain(nodeService, row.pageId, row.id, result.children);
-        migrated++;
     }
 
     // eslint-disable-next-line no-console
-    console.log(`Migrated ${migrated} of ${rows.length} close-out-batch nodes.`);
+    console.log(`Migrated ${migrated} of ${rows.length} close-out-batch nodes (${failed} failed — re-run this script to retry them).`);
     await AppDataSource.destroy();
 }
 
